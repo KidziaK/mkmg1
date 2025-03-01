@@ -210,7 +210,7 @@ void renderEllipsoid(unsigned char* buffer, int width, int height, const mat4& M
                 const float t = (-b - sqrtf(discriminant)) / (2 * a);
                 vec4 hitPoint = rayOrigin + t * rayDirection;
 
-                vec4 normal = ((D_M + D_M.t()) / 2) * hitPoint;
+                vec4 normal = (D_M + D_M.t()) * hitPoint;
                 normal = normal.normalize();
 
                 float illuminance = powf(dot(-rayDirection, normal), m);
