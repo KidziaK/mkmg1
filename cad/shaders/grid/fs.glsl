@@ -13,9 +13,9 @@ void main() {
 
     if (abs(worldPos.y) < 1e-5f) {
         if (abs(worldPos.x) < 1e-5f) {
-            FragColor = x_axis_color;
-        } else if (abs(worldPos.z) < 1e-5f) {
             FragColor = z_axis_color;
+        } else if (abs(worldPos.z) < 1e-5f) {
+            FragColor = x_axis_color;
         } else if (abs(worldPos.x - round(worldPos.x)) < lineWidth || abs(worldPos.z - round(worldPos.z)) < lineWidth) {
             FragColor =  grid_lines_color;
         } else {
