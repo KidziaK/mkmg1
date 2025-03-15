@@ -21,12 +21,14 @@ float lastX = 400, lastY = 300;
 float yaw = 45.0f, pitch = 45.0f;
 float scale = 1.0f;
 float transX = 0.0f, transY = 0.0f;
-int chunk_size = 8;
-int effective_chunk_size = 8;
+int chunk_size = 16;
+int effective_chunk_size = chunk_size;
 bool mousePressed = false;
 bool rotating = false;
 
-static constexpr int windowWidth = 1200, windowHeight = 800;
+int windowWidth = 1200, windowHeight = 800;
+
+std::vector<unsigned char> frameBuffer(windowWidth * windowHeight * 3, 0);
 
 int main() {
     if (!glfwInit()) {
@@ -45,6 +47,8 @@ int main() {
         return -1;
     }
     glfwMakeContextCurrent(window);
+
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
     glfwSetCursorPosCallback(window, mouse_callback);
@@ -68,8 +72,6 @@ int main() {
     float ellipsoidC = 5.0f;
     float intensity = 1.0f;
 
-    std::vector<unsigned char> frameBuffer(windowWidth * windowHeight * 3, 0);
-
     mat4 D = mat4::diag(ellipsoidA, ellipsoidB, ellipsoidC, -1.0f);
 
     while (!glfwWindowShouldClose(window)) {
@@ -87,7 +89,7 @@ int main() {
         ImGui::SliderFloat("b", &ellipsoidB, 1.0f, 10.0f);
         ImGui::SliderFloat("c", &ellipsoidC, 1.0f, 10.0f);
         ImGui::SliderFloat("m", &intensity, 0.05f, 5.0f);
-        if (ImGui::SliderInt("s", &chunk_size, 1, 8)) {
+        if (ImGui::SliderInt("s", &chunk_size, 1, 16)) {
             effective_chunk_size = chunk_size;
         };
         ImGui::Text("(%.1f FPS)", ImGui::GetIO().Framerate);
@@ -102,7 +104,7 @@ int main() {
         effective_chunk_size = std::max(1, effective_chunk_size / 2);
 
         glBindTexture(GL_TEXTURE_2D, textureID);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, windowWidth, windowHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, frameBuffer.data());
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, windowWidth, windowHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, frameBuffer.data());
 
         ImGui::SetNextWindowPos(ImVec2(0, 0));
         ImGui::SetNextWindowSize(ImVec2(windowWidth, windowHeight));
@@ -131,6 +133,11 @@ int main() {
 }
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
+    effective_chunk_size = chunk_size;
+    windowWidth = width;
+    windowHeight = height;
+    frameBuffer.resize(width * height * 3);
+    std::fill(frameBuffer.begin(), frameBuffer.end(), 0);
     glViewport(0, 0, width, height);
 }
 
@@ -184,9 +191,8 @@ void renderEllipsoid(unsigned char* buffer, int width, int height, const mat4& M
     mat4 M_inv = M.inv();
     mat4 D_M = M_inv.t() * D * M_inv;
 
-    #pragma omp parallel for
+    #pragma omp parallel for collapse(2)
     for (int j = 0; j < height; j += chunk_size) {
-        #pragma omp parallel for
         for (int i = 0; i < width; i += chunk_size) {
             unsigned char red = 25, green = 25, blue = 25;
             const float x = (2.0f * static_cast<float>(i)) / static_cast<float>(width) - 1.0f;
@@ -225,10 +231,15 @@ void renderEllipsoid(unsigned char* buffer, int width, int height, const mat4& M
                 for (int kj = 0; kj < chunk_size; ++kj) {
                     int i_ = i + ki;
                     int j_ = j + kj;
-                    const int index = (j_ * width + i_) * 3;
-                    buffer[index] = red;
-                    buffer[index + 1] = green;
-                    buffer[index + 2] = blue;
+
+                    if (i_ < width && j_ < height) {
+                        const size_t index = (j_ * width + i_) * 3;
+                        if (index + 2 < width * height * 3) {
+                            buffer[index] = red;
+                            buffer[index + 1] = green;
+                            buffer[index + 2] = blue;
+                        }
+                    }
                 }
             }
         }
@@ -290,8 +301,3 @@ mat4 createTransformationMatrix(float scale, float rotX, float rotY, float rotZ,
 
     return result;
 }
-
-
-
-
-
