@@ -5,8 +5,7 @@
 #include <utility>
 
 template <typename Key, typename Value>
-class LRUCache {
-public:
+struct LRUCache {
     LRUCache(size_t capacity) : capacity_(capacity) {}
 
     Value get(const Key& key) {

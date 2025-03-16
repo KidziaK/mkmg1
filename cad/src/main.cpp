@@ -5,15 +5,22 @@
 #include <chrono>
 #include "glad.h"
 #include <GLFW/glfw3.h>
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
 #include "utility/shader_manager.h"
-#include "callbacks_and_io.h"
 #include <geometry.h>
+
+#include "debugging.h"
+
+
+#ifdef DEBUG
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
+#else
+#include <myglm.h>
+#endif
 
 // window
 GLFWwindow* window = nullptr;
@@ -56,17 +63,17 @@ ObjectRegistry object_registry(32, 32);
 Object* selectedObject = nullptr;
 
 // ImGui variables for torus properties
-static constexpr glm::vec3 defaultTorusPosition = { 0.0f, 0.0f, 0.0f };
-static constexpr glm::vec3 defaultTorusRotation = { 0.0f, 0.0f, 0.0f };
-static constexpr glm::vec3 defaultTorusScale = { 1.0f, 1.0f, 1.0f };
+static constexpr glm::vec3 defaultObjectPosition = { 0.0f, 0.0f, 0.0f };
+static constexpr glm::vec3 defaultObjectRotation = { 0.0f, 0.0f, 0.0f };
+static constexpr glm::vec3 defaultObjectScale = { 1.0f, 1.0f, 1.0f };
 static constexpr float defaultTorusBigRadius = 1.0f;
 static constexpr float defaultTorusSmallRadius = 0.25f;
 static constexpr int defaultTorusThetaSamples = 10;
 static constexpr int defaultTorusPhiSamples = 10;
 
-glm::vec3 torusPosition = defaultTorusPosition;
-glm::vec3 torusRotation = defaultTorusRotation;
-glm::vec3 torusScale = defaultTorusScale;
+glm::vec3 torusPosition = defaultObjectPosition;
+glm::vec3 torusRotation = defaultObjectRotation;
+glm::vec3 torusScale = defaultObjectScale;
 float torusBigRadius = defaultTorusBigRadius;
 float torusSmallRadius = defaultTorusSmallRadius;
 int torusThetaSamples = defaultTorusThetaSamples;
@@ -74,6 +81,59 @@ int torusPhiSamples = defaultTorusPhiSamples;
 
 unsigned int tori_count = 0;
 
+void framebuffer_size_callback(GLFWwindow* window_, int width_, int height_) {
+    width = width_;
+    height = height_;
+    glViewport(0, 0, width_, height_);
+}
+
+void processInput() {
+    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+        glfwSetWindowShouldClose(window, true);
+    }
+
+    if (leftMousePressed && !ImGui::GetIO().WantCaptureMouse) { // Check ImGui capture
+        double xpos, ypos;
+        glfwGetCursorPos(window, &xpos, &ypos);
+
+        float xoffset = xpos - lastX;
+        float yoffset = lastY - ypos;
+
+        xoffset *= mouseSensitivity;
+        yoffset *= mouseSensitivity;
+
+        orbit_yaw += xoffset;
+        orbit_pitch -= yoffset;
+
+        if (orbit_pitch > 89.0f)
+            orbit_pitch = 89.0f;
+        if (orbit_pitch < -89.0f)
+            orbit_pitch = -89.0f;
+
+        lastX = xpos;
+        lastY = ypos;
+    }
+}
+
+void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
+    if (button == GLFW_MOUSE_BUTTON_LEFT) {
+        leftMousePressed = action == GLFW_PRESS;
+        if (leftMousePressed) {
+            glfwGetCursorPos(window, &lastX, &lastY);
+            if (!ImGui::GetIO().WantCaptureMouse) { // Check ImGui capture
+                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+            }
+        } else {
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+        }
+    }
+}
+
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
+    orbit_distance -= (float)yoffset * zoomSensitivity;
+    if (orbit_distance < 1.0f)
+        orbit_distance = 1.0f;
+}
 
 void render_gui() {
     ImGui::Begin("Objects", &showObjectMenu, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize);
@@ -84,9 +144,9 @@ void render_gui() {
             new Torus(torusSmallRadius, torusBigRadius, torusPhiSamples, torusThetaSamples)
         );
         selectedObject->name = "Torus" + std::to_string(tori_count);
-        torusPosition = defaultTorusPosition;
-        torusRotation = defaultTorusRotation;
-        torusScale = defaultTorusScale;
+        torusPosition = defaultObjectPosition;
+        torusRotation = defaultObjectRotation;
+        torusScale = defaultObjectScale;
         torusBigRadius = defaultTorusBigRadius;
         torusSmallRadius = defaultTorusSmallRadius;
         torusThetaSamples = defaultTorusThetaSamples;
@@ -140,11 +200,19 @@ void render_gui() {
                 if (torusPhiSamples < 3) {
                     torusPhiSamples = 3;
                 }
-                torus->transform = glm::translate(glm::mat4(1.0f), torusPosition)
-                                   * glm::rotate(glm::mat4(1.0f), glm::radians(torusRotation.x), glm::vec3(1.0f, 0.0f, 0.0f))
-                                   * glm::rotate(glm::mat4(1.0f), glm::radians(torusRotation.y), glm::vec3(0.0f, 1.0f, 0.0f))
-                                   * glm::rotate(glm::mat4(1.0f), glm::radians(torusRotation.z), glm::vec3(0.0f, 0.0f, 1.0f))
-                                   * glm::scale(glm::mat4(1.0f), torusScale);
+
+                auto model = glm::mat4(1.0f);
+
+                model = glm::translate(model, torusPosition);
+
+                model = glm::rotate(model, glm::radians(torusRotation.x), glm::vec3(1.0f, 0.0f, 0.0f));
+                model = glm::rotate(model, glm::radians(torusRotation.y), glm::vec3(0.0f, 1.0f, 0.0f));
+                model = glm::rotate(model, glm::radians(torusRotation.z), glm::vec3(0.0f, 0.0f, 1.0f));
+
+                model = glm::scale(model, torusScale);
+
+                torus->transform = model;
+
                 torus->big_radius = torusBigRadius;
                 torus->small_radius = torusSmallRadius;
                 torus->theta_samples = torusThetaSamples;
@@ -190,6 +258,8 @@ void render_grid() {
     glBindVertexArray(gridVAO);
     glDrawArrays(GL_LINES, 0, gridVertices.size());
     glBindVertexArray(0);
+
+    glDeleteProgram(shaderProgram);
 }
 
 void render_mesh(const std::pair<Vertices, Triangles>& buffers, const std::string& shader_name, const glm::mat4& model) {
@@ -224,6 +294,8 @@ void render_mesh(const std::pair<Vertices, Triangles>& buffers, const std::strin
     glDeleteVertexArrays(1, &VAO);
     glDeleteBuffers(1, &VBO);
     glDeleteBuffers(1, &EBO);
+
+    glDeleteProgram(shaderProgram);
 }
 
 void render_wireframe(const std::pair<Vertices, Lines>& buffers, const std::string& shader_name, const glm::mat4& model) {
@@ -258,6 +330,8 @@ void render_wireframe(const std::pair<Vertices, Lines>& buffers, const std::stri
     glDeleteVertexArrays(1, &VAO);
     glDeleteBuffers(1, &VBO);
     glDeleteBuffers(1, &EBO);
+
+    glDeleteProgram(shaderProgram);
 }
 
 

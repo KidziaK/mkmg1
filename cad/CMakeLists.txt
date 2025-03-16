@@ -10,11 +10,14 @@ find_package(OpenGL REQUIRED)
 set(SOURCES
         src/main.cpp
         src/glad.c
-        src/math/mat3.cpp
-        src/math/mat4.cpp
-        src/math/vec3.cpp
-        src/math/vec4.cpp
+        src/myglm.h
+        src/debugging.h
 )
+
+#if(CMAKE_BUILD_TYPE MATCHES Debug)
+#    add_definitions(-DDEBUG)
+#endif()
+
 
 add_executable(${PROJECT_NAME} ${SOURCES})
 

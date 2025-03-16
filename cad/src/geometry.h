@@ -1,5 +1,14 @@
-#include <array>
+#pragma once
+
+#ifdef DEBUG
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
+#else
+#include <myglm.h>
+#endif
+
+#include <array>
 #include <functional>
 #include "lru_cache.h"
 
@@ -92,7 +101,7 @@ struct Torus final : Object {
     [[nodiscard]]
     std::vector<LineFormat> lines() const override {
         std::vector<LineFormat> lines;
-        lines.reserve(theta_samples * phi_samples * 6); // 6 indices per quad (2 triangles)
+        lines.reserve(theta_samples * phi_samples * 6);
 
         for (unsigned int i = 0; i < theta_samples; ++i) {
             for (unsigned int j = 0; j < phi_samples; ++j) {
@@ -101,15 +110,13 @@ struct Torus final : Object {
                 unsigned int index3 = ((i + 1) * (phi_samples + 1)) + j;
                 unsigned int index4 = ((i + 1) * (phi_samples + 1)) + j + 1;
 
-                // Triangle 1 edges:
-                lines.emplace_back(index1, index2); // Edge 1
-                lines.emplace_back(index2, index3); // Edge 2
-                lines.emplace_back(index3, index1); // Edge 3
+                lines.emplace_back(index1, index2);
+                lines.emplace_back(index2, index3);
+                lines.emplace_back(index3, index1);
 
-                // Triangle 2 edges:
-                lines.emplace_back(index2, index4); // Edge 1
-                lines.emplace_back(index4, index3); // Edge 2
-                lines.emplace_back(index3, index2); // Edge 3
+                lines.emplace_back(index2, index4);
+                lines.emplace_back(index4, index3);
+                lines.emplace_back(index3, index2);
             }
         }
         return lines;
@@ -184,11 +191,11 @@ inline std::pair<Vertices, Triangles> generateRotationBall(float radius, int sli
 
     for (int i = 0; i <= stacks; ++i) {
         float v = static_cast<float>(i) / static_cast<float>(stacks);
-        float phi = v * glm::pi<float>();
+        float phi = v * M_PIf;
 
         for (int j = 0; j <= slices; ++j) {
             float u = static_cast<float>(j) / static_cast<float>(slices);
-            float theta = u * 2.0f * glm::pi<float>();
+            float theta = u * 2.0f * M_PIf;
 
             float x = radius * sin(phi) * cos(theta);
             float y = radius * cos(phi);
