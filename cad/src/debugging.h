@@ -3,14 +3,8 @@
 #include <ios>
 #include <iostream>
 #include <ostream>
-
-#ifdef DEBUG
 #include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
-#else
-#include <myglm.h>
-#endif
 
 
 inline void printMat4ValuePtr(const glm::mat4& matrix) {

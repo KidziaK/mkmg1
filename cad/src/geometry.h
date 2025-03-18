@@ -1,13 +1,6 @@
 #pragma once
 
-#ifdef DEBUG
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
-#else
 #include <myglm.h>
-#endif
-
 #include <array>
 #include <functional>
 #include "lru_cache.h"
@@ -15,29 +8,29 @@
 constexpr int gridSize = 1000;
 constexpr int gridVertexCount = (2 * gridSize + 1) * 4;
 
-static constexpr std::array<glm::vec3, gridVertexCount> generateGridVertices(int gridSize) {
-    std::array<glm::vec3, gridVertexCount> vertices{};
+static constexpr std::array<myglm::vec3, gridVertexCount> generateGridVertices(int gridSize) {
+    std::array<myglm::vec3, gridVertexCount> vertices{};
     int index = 0;
 
     for (int i = -gridSize; i <= gridSize; ++i) {
-        vertices[index++] = glm::vec3(i, 0, -gridSize);
-        vertices[index++] = glm::vec3(i, 0, gridSize);
-        vertices[index++] = glm::vec3(-gridSize, 0, i);
-        vertices[index++] = glm::vec3(gridSize, 0, i);
+        vertices[index++] = myglm::vec3(i, 0, -gridSize);
+        vertices[index++] = myglm::vec3(i, 0, gridSize);
+        vertices[index++] = myglm::vec3(-gridSize, 0, i);
+        vertices[index++] = myglm::vec3(gridSize, 0, i);
     }
     return vertices;
 }
 
-using VertexFormat = glm::vec3;
-using IndexFormat = glm::u16vec3;
-using LineFormat = glm::u16vec2;
+using VertexFormat = myglm::vec3;
+using IndexFormat = myglm::u16vec3;
+using LineFormat = myglm::u16vec2;
 
 struct Object {
     virtual ~Object() = default;
 
     bool wireframe = true;
 
-    glm::mat4 transform = glm::mat4(1.0f);
+    myglm::mat4 transform = myglm::mat4(1.0f);
 
     std::string name;
 

@@ -14,11 +14,6 @@ set(SOURCES
         src/debugging.h
 )
 
-#if(CMAKE_BUILD_TYPE MATCHES Debug)
-#    add_definitions(-DDEBUG)
-#endif()
-
-
 add_executable(${PROJECT_NAME} ${SOURCES})
 
 # Include the src directory to find glad.h and other headers

@@ -3,7 +3,7 @@
 #include <cmath>
 #include <iostream>
 
-namespace glm {
+namespace myglm {
     struct u16vec2 {
         unsigned short x;
         unsigned short y;
@@ -55,7 +55,7 @@ namespace glm {
     };
 
     struct mat4 {
-        float elements[4][4]; // Column-major
+        float elements[4][4];
 
         mat4() {
             for (int i = 0; i < 4; ++i) {
@@ -265,34 +265,48 @@ namespace glm {
     }
 
     quat quat_cast(const mat4& m) {
-        float trace = m.elements[0][0] + m.elements[1][1] + m.elements[2][2];
+        mat4 rotationMatrix = m;
+        for (int i = 0; i < 3; ++i) {
+            float rowMagnitude = std::sqrt(
+                rotationMatrix.elements[i][0] * rotationMatrix.elements[i][0] +
+                rotationMatrix.elements[i][1] * rotationMatrix.elements[i][1] +
+                rotationMatrix.elements[i][2] * rotationMatrix.elements[i][2]
+            );
+            if (rowMagnitude > 0.0f) {
+                for (int j = 0; j < 3; ++j) {
+                    rotationMatrix.elements[i][j] /= rowMagnitude;
+                }
+            }
+        }
+
+        float trace = rotationMatrix.elements[0][0] + rotationMatrix.elements[1][1] + rotationMatrix.elements[2][2];
         if (trace > 0) {
             float s = 0.5f / std::sqrt(trace + 1.0f);
             float w = 0.25f / s;
-            float x = (m.elements[2][1] - m.elements[1][2]) * s;
-            float y = (m.elements[0][2] - m.elements[2][0]) * s;
-            float z = (m.elements[1][0] - m.elements[0][1]) * s;
+            float x = (rotationMatrix.elements[2][1] - rotationMatrix.elements[1][2]) * s;
+            float y = (rotationMatrix.elements[0][2] - rotationMatrix.elements[2][0]) * s;
+            float z = (rotationMatrix.elements[1][0] - rotationMatrix.elements[0][1]) * s;
             return quat(w, x, y, z);
         } else {
-            if (m.elements[0][0] > m.elements[1][1] && m.elements[0][0] > m.elements[2][2]) {
-                float s = 2.0f * std::sqrt(1.0f + m.elements[0][0] - m.elements[1][1] - m.elements[2][2]);
-                float w = (m.elements[2][1] - m.elements[1][2]) / s;
+            if (rotationMatrix.elements[0][0] > rotationMatrix.elements[1][1] && rotationMatrix.elements[0][0] > rotationMatrix.elements[2][2]) {
+                float s = 2.0f * std::sqrt(1.0f + rotationMatrix.elements[0][0] - rotationMatrix.elements[1][1] - rotationMatrix.elements[2][2]);
+                float w = (rotationMatrix.elements[2][1] - rotationMatrix.elements[1][2]) / s;
                 float x = 0.25f * s;
-                float y = (m.elements[0][1] + m.elements[1][0]) / s;
-                float z = (m.elements[0][2] + m.elements[2][0]) / s;
+                float y = (rotationMatrix.elements[0][1] + rotationMatrix.elements[1][0]) / s;
+                float z = (rotationMatrix.elements[0][2] + rotationMatrix.elements[2][0]) / s;
                 return quat(w, x, y, z);
-            } else if (m.elements[1][1] > m.elements[2][2]) {
-                float s = 2.0f * std::sqrt(1.0f + m.elements[1][1] - m.elements[0][0] - m.elements[2][2]);
-                float w = (m.elements[0][2] - m.elements[2][0]) / s;
-                float x = (m.elements[0][1] + m.elements[1][0]) / s;
+            } else if (rotationMatrix.elements[1][1] > rotationMatrix.elements[2][2]) {
+                float s = 2.0f * std::sqrt(1.0f + rotationMatrix.elements[1][1] - rotationMatrix.elements[0][0] - rotationMatrix.elements[2][2]);
+                float w = (rotationMatrix.elements[0][2] - rotationMatrix.elements[2][0]) / s;
+                float x = (rotationMatrix.elements[0][1] + rotationMatrix.elements[1][0]) / s;
                 float y = 0.25f * s;
-                float z = (m.elements[1][2] + m.elements[2][1]) / s;
+                float z = (rotationMatrix.elements[1][2] + rotationMatrix.elements[2][1]) / s;
                 return quat(w, x, y, z);
             } else {
-                float s = 2.0f * std::sqrt(1.0f + m.elements[2][2] - m.elements[0][0] - m.elements[1][1]);
-                float w = (m.elements[1][0] - m.elements[0][1]) / s;
-                float x = (m.elements[0][2] + m.elements[2][0]) / s;
-                float y = (m.elements[1][2] + m.elements[2][1]) / s;
+                float s = 2.0f * std::sqrt(1.0f + rotationMatrix.elements[2][2] - rotationMatrix.elements[0][0] - rotationMatrix.elements[1][1]);
+                float w = (rotationMatrix.elements[1][0] - rotationMatrix.elements[0][1]) / s;
+                float x = (rotationMatrix.elements[0][2] + rotationMatrix.elements[2][0]) / s;
+                float y = (rotationMatrix.elements[1][2] + rotationMatrix.elements[2][1]) / s;
                 float z = 0.25f * s;
                 return quat(w, x, y, z);
             }
@@ -350,5 +364,9 @@ namespace glm {
             }
         }
         return result;
+    }
+
+    vec3 normalize(const vec3& v) {
+        return v / v.length();
     }
 }

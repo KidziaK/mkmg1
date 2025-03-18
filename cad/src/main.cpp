@@ -10,17 +10,8 @@
 #include "imgui_impl_opengl3.h"
 #include "utility/shader_manager.h"
 #include <geometry.h>
-
 #include "debugging.h"
-
-
-#ifdef DEBUG
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
-#else
 #include <myglm.h>
-#endif
 
 // window
 GLFWwindow* window = nullptr;
@@ -33,7 +24,7 @@ bool leftMousePressed = false;
 bool middleMousePressed = false;
 
 // camera
-glm::vec3 target_position = glm::vec3(0.0f, 0.0f, 0.0f);
+myglm::vec3 target_position = myglm::vec3(0.0f, 0.0f, 0.0f);
 float orbit_distance = 5.0f;
 float orbit_yaw = 45.0f;
 float orbit_pitch = 45.0f;
@@ -45,8 +36,8 @@ float zoomSensitivity = 0.1f;
 ShaderManager shader_manager({"../shaders/"});
 
 // matrices
-auto projection = glm::mat4(1.0f);
-auto view = glm::mat4(1.0f);
+auto projection = myglm::mat4(1.0f);
+auto view = myglm::mat4(1.0f);
 
 // ImGui Variables
 bool showObjectMenu = true;
@@ -63,17 +54,17 @@ ObjectRegistry object_registry(32, 32);
 Object* selectedObject = nullptr;
 
 // ImGui variables for torus properties
-static constexpr glm::vec3 defaultObjectPosition = { 0.0f, 0.0f, 0.0f };
-static constexpr glm::vec3 defaultObjectRotation = { 0.0f, 0.0f, 0.0f };
-static constexpr glm::vec3 defaultObjectScale = { 1.0f, 1.0f, 1.0f };
+static constexpr myglm::vec3 defaultObjectPosition = { 0.0f, 0.0f, 0.0f };
+static constexpr myglm::vec3 defaultObjectRotation = { 0.0f, 0.0f, 0.0f };
+static constexpr myglm::vec3 defaultObjectScale = { 1.0f, 1.0f, 1.0f };
 static constexpr float defaultTorusBigRadius = 1.0f;
 static constexpr float defaultTorusSmallRadius = 0.25f;
 static constexpr int defaultTorusThetaSamples = 10;
 static constexpr int defaultTorusPhiSamples = 10;
 
-glm::vec3 torusPosition = defaultObjectPosition;
-glm::vec3 torusRotation = defaultObjectRotation;
-glm::vec3 torusScale = defaultObjectScale;
+myglm::vec3 torusPosition = defaultObjectPosition;
+myglm::vec3 torusRotation = defaultObjectRotation;
+myglm::vec3 torusScale = defaultObjectScale;
 float torusBigRadius = defaultTorusBigRadius;
 float torusSmallRadius = defaultTorusSmallRadius;
 int torusThetaSamples = defaultTorusThetaSamples;
@@ -92,7 +83,7 @@ void processInput() {
         glfwSetWindowShouldClose(window, true);
     }
 
-    if (leftMousePressed && !ImGui::GetIO().WantCaptureMouse) { // Check ImGui capture
+    if (leftMousePressed && !ImGui::GetIO().WantCaptureMouse) {
         double xpos, ypos;
         glfwGetCursorPos(window, &xpos, &ypos);
 
@@ -113,6 +104,32 @@ void processInput() {
         lastX = xpos;
         lastY = ypos;
     }
+
+    if (middleMousePressed && !ImGui::GetIO().WantCaptureMouse) {
+        double xpos, ypos;
+        glfwGetCursorPos(window, &xpos, &ypos);
+
+        float xoffset = xpos - lastX;
+        float yoffset = ypos - lastY;
+
+        xoffset *= mouseSensitivity;
+        yoffset *= mouseSensitivity;
+
+        myglm::vec3 camera_direction = myglm::normalize(target_position - myglm::vec3(
+            orbit_distance * cos(myglm::radians(orbit_yaw)) * cos(myglm::radians(orbit_pitch)),
+            orbit_distance * sin(myglm::radians(orbit_pitch)),
+            orbit_distance * sin(myglm::radians(orbit_yaw)) * cos(myglm::radians(orbit_pitch))
+        ));
+
+        myglm::vec3 camera_right = myglm::normalize(myglm::cross(myglm::vec3(0.0f, 1.0f, 0.0f), camera_direction));
+        myglm::vec3 camera_up = myglm::normalize(myglm::cross(camera_direction, camera_right));
+
+        target_position = target_position + camera_right * xoffset * orbit_distance * 0.01f;
+        target_position = target_position + camera_up * yoffset * orbit_distance * 0.01f;
+
+        lastX = xpos;
+        lastY = ypos;
+    }
 }
 
 void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
@@ -120,11 +137,23 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
         leftMousePressed = action == GLFW_PRESS;
         if (leftMousePressed) {
             glfwGetCursorPos(window, &lastX, &lastY);
-            if (!ImGui::GetIO().WantCaptureMouse) { // Check ImGui capture
+            if (!ImGui::GetIO().WantCaptureMouse) {
                 glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
             }
         } else {
             glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+        }
+    }
+    if (button == GLFW_MOUSE_BUTTON_MIDDLE) {
+        middleMousePressed = action == GLFW_PRESS;
+        if (middleMousePressed) {
+            glfwGetCursorPos(window, &lastX, &lastY);
+            if (!ImGui::GetIO().WantCaptureMouse) {
+                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+            }
+        } else {
+            if (!leftMousePressed)
+                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
         }
     }
 }
@@ -162,11 +191,11 @@ void render_gui() {
                 selectedObject = obj;
 
                 if (Torus* torus = dynamic_cast<Torus*>(selectedObject)) {
-                    torusPosition = glm::vec3(torus->transform[3]);
-                    glm::quat rotation_quat = glm::quat_cast(torus->transform);
-                    torusRotation = glm::eulerAngles(rotation_quat);
-                    torusRotation = glm::degrees(torusRotation);
-                    torusScale = glm::vec3(glm::length(glm::vec3(torus->transform[0])), glm::length(glm::vec3(torus->transform[1])), glm::length(glm::vec3(torus->transform[2])));
+                    torusPosition = myglm::vec3(torus->transform[3]);
+                    myglm::quat rotation_quat = myglm::quat_cast(torus->transform);
+                    torusRotation = myglm::eulerAngles(rotation_quat);
+                    torusRotation = myglm::degrees(torusRotation);
+                    torusScale = myglm::vec3(myglm::length(myglm::vec3(torus->transform[0])), myglm::length(myglm::vec3(torus->transform[1])), myglm::length(myglm::vec3(torus->transform[2])));
                     torusBigRadius = torus->big_radius;
                     torusSmallRadius = torus->small_radius;
                     torusThetaSamples = torus->theta_samples;
@@ -181,9 +210,9 @@ void render_gui() {
     if (selectedObject != nullptr) {
         if (ImGui::TreeNode("Object Properties")) {
             if (Torus* torus = dynamic_cast<Torus*>(selectedObject)) {
-                ImGui::DragFloat3("Position", glm::value_ptr(torusPosition), 0.1f);
-                ImGui::DragFloat3("Rotation", glm::value_ptr(torusRotation), 1.0f);
-                ImGui::DragFloat3("Scale", glm::value_ptr(torusScale), 0.1f);
+                ImGui::DragFloat3("Position", myglm::value_ptr(torusPosition), 0.1f);
+                ImGui::DragFloat3("Rotation", myglm::value_ptr(torusRotation), 1.0f);
+                ImGui::DragFloat3("Scale", myglm::value_ptr(torusScale), 0.1f);
                 ImGui::DragFloat("Big Radius", &torusBigRadius, 0.05f, 0.01f);
                 if (torusBigRadius < 0.01f) {
                     torusBigRadius = 0.01f;
@@ -201,15 +230,15 @@ void render_gui() {
                     torusPhiSamples = 3;
                 }
 
-                auto model = glm::mat4(1.0f);
+                auto model = myglm::mat4(1.0f);
 
-                model = glm::translate(model, torusPosition);
+                model = myglm::translate(model, torusPosition);
 
-                model = glm::rotate(model, glm::radians(torusRotation.x), glm::vec3(1.0f, 0.0f, 0.0f));
-                model = glm::rotate(model, glm::radians(torusRotation.y), glm::vec3(0.0f, 1.0f, 0.0f));
-                model = glm::rotate(model, glm::radians(torusRotation.z), glm::vec3(0.0f, 0.0f, 1.0f));
+                model = myglm::rotate(model, myglm::radians(torusRotation.x), myglm::vec3(1.0f, 0.0f, 0.0f));
+                model = myglm::rotate(model, myglm::radians(torusRotation.y), myglm::vec3(0.0f, 1.0f, 0.0f));
+                model = myglm::rotate(model, myglm::radians(torusRotation.z), myglm::vec3(0.0f, 0.0f, 1.0f));
 
-                model = glm::scale(model, torusScale);
+                model = myglm::scale(model, torusScale);
 
                 torus->transform = model;
 
@@ -240,7 +269,7 @@ void initializeGridBuffers() {
     glBindVertexArray(gridVAO);
 
     glBindBuffer(GL_ARRAY_BUFFER, gridVBO);
-    glBufferData(GL_ARRAY_BUFFER, gridVertices.size() * sizeof(glm::vec3), gridVertices.data(), GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, gridVertices.size() * sizeof(myglm::vec3), gridVertices.data(), GL_STATIC_DRAW);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
 
@@ -252,8 +281,8 @@ void render_grid() {
 
     glUseProgram(shaderProgram);
 
-    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
-    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "view"), 1, GL_FALSE, glm::value_ptr(view));
+    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, myglm::value_ptr(projection));
+    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "view"), 1, GL_FALSE, myglm::value_ptr(view));
 
     glBindVertexArray(gridVAO);
     glDrawArrays(GL_LINES, 0, gridVertices.size());
@@ -262,14 +291,14 @@ void render_grid() {
     glDeleteProgram(shaderProgram);
 }
 
-void render_mesh(const std::pair<Vertices, Triangles>& buffers, const std::string& shader_name, const glm::mat4& model) {
+void render_mesh(const std::pair<Vertices, Triangles>& buffers, const std::string& shader_name, const myglm::mat4& model) {
     unsigned int shaderProgram = shader_manager.shader_program({shader_name});
 
     glUseProgram(shaderProgram);
 
-    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
-    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "view"), 1, GL_FALSE, glm::value_ptr(view));
-    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
+    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, myglm::value_ptr(projection));
+    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "view"), 1, GL_FALSE, myglm::value_ptr(view));
+    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, myglm::value_ptr(model));
 
     unsigned int VAO, VBO, EBO;
     glGenVertexArrays(1, &VAO);
@@ -298,14 +327,14 @@ void render_mesh(const std::pair<Vertices, Triangles>& buffers, const std::strin
     glDeleteProgram(shaderProgram);
 }
 
-void render_wireframe(const std::pair<Vertices, Lines>& buffers, const std::string& shader_name, const glm::mat4& model) {
+void render_wireframe(const std::pair<Vertices, Lines>& buffers, const std::string& shader_name, const myglm::mat4& model) {
     unsigned int shaderProgram = shader_manager.shader_program({shader_name});
 
     glUseProgram(shaderProgram);
 
-    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
-    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "view"), 1, GL_FALSE, glm::value_ptr(view));
-    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
+    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, myglm::value_ptr(projection));
+    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "view"), 1, GL_FALSE, myglm::value_ptr(view));
+    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, myglm::value_ptr(model));
 
     unsigned int VAO, VBO, EBO;
     glGenVertexArrays(1, &VAO);
@@ -390,15 +419,15 @@ int main() {
         glViewport(0, 0, width - imguiWindowWidth, height);
 
         float ascpet_ratio = static_cast<float>(width - imguiWindowWidth) / static_cast<float>(height);
-        projection = glm::perspective(glm::radians(fov),  ascpet_ratio, 0.1f, orbit_distance * 10.0f);
+        projection = myglm::perspective(myglm::radians(fov),  ascpet_ratio, 0.1f, orbit_distance * 10.0f);
 
-        glm::vec3 camera_position = target_position + glm::vec3(
-            orbit_distance * cos(glm::radians(orbit_yaw)) * cos(glm::radians(orbit_pitch)),
-            orbit_distance * sin(glm::radians(orbit_pitch)),
-            orbit_distance * sin(glm::radians(orbit_yaw)) * cos(glm::radians(orbit_pitch))
+        myglm::vec3 camera_position = target_position + myglm::vec3(
+            orbit_distance * cos(myglm::radians(orbit_yaw)) * cos(myglm::radians(orbit_pitch)),
+            orbit_distance * sin(myglm::radians(orbit_pitch)),
+            orbit_distance * sin(myglm::radians(orbit_yaw)) * cos(myglm::radians(orbit_pitch))
         );
 
-        view = glm::lookAt(camera_position, target_position, glm::vec3(0.0f, 1.0f, 0.0f));
+        view = myglm::lookAt(camera_position, target_position, myglm::vec3(0.0f, 1.0f, 0.0f));
 
         render_grid();
 
