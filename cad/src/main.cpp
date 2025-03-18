@@ -329,7 +329,7 @@ void render_mesh(const std::pair<Vertices, Triangles>& buffers, const std::strin
 
 void render_wireframe(const std::pair<Vertices, Lines>& buffers, const std::string& shader_name, const myglm::mat4& model) {
     unsigned int shaderProgram = shader_manager.shader_program({shader_name});
-
+    // TODO create buffer once
     glUseProgram(shaderProgram);
 
     glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, myglm::value_ptr(projection));

@@ -30,7 +30,7 @@ struct Object {
 
     bool wireframe = true;
 
-    myglm::mat4 transform = myglm::mat4(1.0f);
+    myglm::mat4 transform = myglm::mat4(1.0f); // TODO use quaternion, scale, translation instead.
 
     std::string name;
 
