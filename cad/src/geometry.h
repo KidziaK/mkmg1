@@ -287,3 +287,84 @@ struct Point : Object {
     }
 
 };
+
+struct PolyLine : Object {
+    std::vector<Point*> points;
+
+    PolyLine(const unsigned int shader, const std::vector<Point*>& points, const std::string& name = "polyline") {
+        this->points = points;
+        this->transform = Transform::identity();
+        this->name = name;
+        this->shader = shader;
+        auto vertices = calc_vertices();
+        auto edges = calc_edges();
+        this->num_edges = edges.size();
+        this->uid = 3;
+
+        glGenVertexArrays(1, &VAO);
+        glGenBuffers(1, &VBO);
+        glGenBuffers(1, &EBO);
+
+        glBindVertexArray(VAO);
+
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(Vertex), vertices.data(), GL_STATIC_DRAW);
+
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, edges.size() * sizeof(Edge), edges.data(), GL_STATIC_DRAW);
+
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)0);
+        glEnableVertexAttribArray(0);
+    }
+
+    [[nodiscard]] std::vector<Vertex> calc_vertices() const {
+        std::vector<Vertex> vertices;
+        vertices.reserve(points.size());
+
+        for (unsigned int i = 0; i < points.size(); ++i) {
+            vertices.emplace_back(points[i]->transform.translation);
+        }
+        return vertices;
+    }
+
+    [[nodiscard]] std::vector<Edge> calc_edges() const {
+        std::vector<Edge> edges;
+        edges.reserve(points.size() - 1);
+
+        for (unsigned int i = 0; i < points.size() - 1; ++i) {
+            edges.emplace_back(i, i + 1);
+        }
+        return edges;
+    }
+
+    void draw(const mat4& projection, const mat4& view, bool selected) override {
+        auto vertices = calc_vertices();
+        auto edges = calc_edges();
+        this->num_edges = edges.size();
+
+        glBindVertexArray(VAO);
+
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(Vertex), vertices.data(), GL_STATIC_DRAW);
+
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, edges.size() * sizeof(Edge), edges.data(), GL_STATIC_DRAW);
+
+        mat4 model = Transform::identity().to_mat4();
+
+        glUseProgram(shader);
+
+        glUniformMatrix4fv(glGetUniformLocation(shader, "projection"), 1, GL_FALSE, value_ptr(projection));
+        glUniformMatrix4fv(glGetUniformLocation(shader, "view"), 1, GL_FALSE, value_ptr(view));
+        glUniformMatrix4fv(glGetUniformLocation(shader, "model"), 1, GL_FALSE, value_ptr(model));
+        glUniform1i(glGetUniformLocation(shader, "u_selected"), selected);
+
+        glBindVertexArray(VAO);
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+
+        glDrawElements(GL_LINES, num_edges * 2, GL_UNSIGNED_SHORT, 0);
+        glBindVertexArray(0);
+    }
+
+};

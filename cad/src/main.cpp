@@ -252,6 +252,19 @@ void render_options_menu() {
         ppoint->transform = objects[0]->transform;
     }
 
+    if (ImGui::Button("Polyline")) {
+        std::vector<Point*> points;
+        for (auto& object : selected_objects) {
+            if (object->uid == 2) {
+                points.push_back(dynamic_cast<Point*>(object));
+            }
+        }
+        if (points.size() >= 2) {
+            auto ppolyline = new PolyLine(point_shader, points);
+            objects.push_back(ppolyline);
+        }
+    }
+
     ImGui::End();
 }
 
@@ -517,18 +530,24 @@ int main() {
             object->draw(projection, view, selected_objects.contains(object));
         }
 
-
-
         if (selected_objects.size() > 0) {
             center_point->transform = Transform::identity();
             center_point->transform.s = vec3(0.5f, 0.5f, 0.5f);
 
+            float counter = 0.0f;
+
             for (auto& object : selected_objects) {
-                center_point->transform.translation += object->transform.translation;
+                if (object->uid != 3) {
+                    center_point->transform.translation += object->transform.translation;
+                    counter++;
+                }
+
             }
 
-            center_point->transform.translation /= static_cast<float>(selected_objects.size());
-            center_point->draw(projection, view, false);
+            if (counter > 0) {
+                center_point->transform.translation /= counter;
+                center_point->draw(projection, view, false);
+            }
         }
 
         render_gui();
