@@ -7,6 +7,8 @@ option(BUILD_SHARED_LIBS "Build using shared libraries" ON)
 
 find_package(OpenGL REQUIRED)
 
+set(IMGUI_INI_FILE "${CMAKE_BINARY_DIR}/imgui.ini")
+
 set(SOURCES
         src/main.cpp
         src/glad.c
@@ -16,7 +18,7 @@ set(SOURCES
 
 add_executable(${PROJECT_NAME} ${SOURCES})
 
-# Include the src directory to find glad.h and other headers
+
 target_include_directories(${PROJECT_NAME} PRIVATE
         ${CMAKE_SOURCE_DIR}/src
         ${OPENGL_INCLUDE_DIR}
@@ -75,3 +77,8 @@ install(TARGETS ${PROJECT_NAME}
 )
 
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
+
+#add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+#        COMMAND ${CMAKE_COMMAND} -E rm -f "${IMGUI_INI_FILE}"
+#        COMMENT "Deleting ImGui .ini file"
+#)

@@ -12,10 +12,13 @@
 #include <geometry.h>
 #include "debugging.h"
 #include <myglm.h>
+#include <unordered_set>
+
+using namespace myglm;
 
 // window
 GLFWwindow* window = nullptr;
-int width = 1280, height = 720;
+int width = 1920, height = 1080;
 
 // mouse
 double lastX = width / 2.0;
@@ -24,53 +27,52 @@ bool leftMousePressed = false;
 bool middleMousePressed = false;
 
 // camera
-myglm::vec3 target_position = myglm::vec3(0.0f, 0.0f, 0.0f);
+vec3 target_position = vec3(0.0f, 0.0f, 0.0f);
 float orbit_distance = 5.0f;
 float orbit_yaw = 45.0f;
 float orbit_pitch = 45.0f;
 float mouseSensitivity = 0.1f;
 float fov = 45.0f;
 float zoomSensitivity = 0.1f;
+vec3 camera_position;
 
 // shaders manager
 ShaderManager shader_manager({"../shaders/"});
+unsigned int grid_shader_program;
+unsigned int torus_shader;
+unsigned int cursor_shader;
+unsigned int point_shader;
 
 // matrices
-auto projection = myglm::mat4(1.0f);
-auto view = myglm::mat4(1.0f);
+auto projection = mat4(1.0f);
+auto view = mat4(1.0f);
 
 // ImGui Variables
-bool showObjectMenu = true;
-bool showTorusTransform = false;
+bool showOptionsMenu = true;
+bool showTransformMenu = false;
 
 // FPS counter
 std::chrono::time_point<std::chrono::high_resolution_clock> lastTime;
 int frameCount = 0;
 float fps = 0.0f;
 
-// geometry
+// static objects
 static constexpr auto gridVertices = generateGridVertices(gridSize);
-ObjectRegistry object_registry(32, 32);
-Object* selectedObject = nullptr;
 
-// ImGui variables for torus properties
-static constexpr myglm::vec3 defaultObjectPosition = { 0.0f, 0.0f, 0.0f };
-static constexpr myglm::vec3 defaultObjectRotation = { 0.0f, 0.0f, 0.0f };
-static constexpr myglm::vec3 defaultObjectScale = { 1.0f, 1.0f, 1.0f };
-static constexpr float defaultTorusBigRadius = 1.0f;
-static constexpr float defaultTorusSmallRadius = 0.25f;
-static constexpr int defaultTorusThetaSamples = 10;
-static constexpr int defaultTorusPhiSamples = 10;
+// dynamic objects
+std::vector<Object*> objects = {};
+std::unordered_set<Object*> selected_objects;
 
-myglm::vec3 torusPosition = defaultObjectPosition;
-myglm::vec3 torusRotation = defaultObjectRotation;
-myglm::vec3 torusScale = defaultObjectScale;
-float torusBigRadius = defaultTorusBigRadius;
-float torusSmallRadius = defaultTorusSmallRadius;
-int torusThetaSamples = defaultTorusThetaSamples;
-int torusPhiSamples = defaultTorusPhiSamples;
+// transform window
+float transform_window_trans[3] = {0, 0, 0};
+float transform_window_rot[3] = {0, 0, 0};
+float transform_window_scale[3] = {1, 1, 1};
 
-unsigned int tori_count = 0;
+// torus
+float big_radius_menu;
+float small_radius_menu;
+int theta_samples_menu;
+int phi_samples_menu;
 
 void framebuffer_size_callback(GLFWwindow* window_, int width_, int height_) {
     width = width_;
@@ -115,14 +117,14 @@ void processInput() {
         xoffset *= mouseSensitivity;
         yoffset *= mouseSensitivity;
 
-        myglm::vec3 camera_direction = myglm::normalize(target_position - myglm::vec3(
-            orbit_distance * cos(myglm::radians(orbit_yaw)) * cos(myglm::radians(orbit_pitch)),
-            orbit_distance * sin(myglm::radians(orbit_pitch)),
-            orbit_distance * sin(myglm::radians(orbit_yaw)) * cos(myglm::radians(orbit_pitch))
+        vec3 camera_direction = normalize(target_position - vec3(
+            orbit_distance * cosf(radians(orbit_yaw)) * cosf(radians(orbit_pitch)),
+            orbit_distance * sinf(radians(orbit_pitch)),
+            orbit_distance * sinf(radians(orbit_yaw)) * cosf(radians(orbit_pitch))
         ));
 
-        myglm::vec3 camera_right = myglm::normalize(myglm::cross(myglm::vec3(0.0f, 1.0f, 0.0f), camera_direction));
-        myglm::vec3 camera_up = myglm::normalize(myglm::cross(camera_direction, camera_right));
+        vec3 camera_right = normalize(cross(vec3(0.0f, 1.0f, 0.0f), camera_direction));
+        vec3 camera_up = normalize(cross(camera_direction, camera_right));
 
         target_position = target_position + camera_right * xoffset * orbit_distance * 0.01f;
         target_position = target_position + camera_up * yoffset * orbit_distance * 0.01f;
@@ -164,100 +166,181 @@ void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
         orbit_distance = 1.0f;
 }
 
-void render_gui() {
-    ImGui::Begin("Objects", &showObjectMenu, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize);
-
-    // Object Creation
-    if (ImGui::Button("Torus")) {
-        selectedObject = object_registry.register_object(
-            new Torus(torusSmallRadius, torusBigRadius, torusPhiSamples, torusThetaSamples)
-        );
-        selectedObject->name = "Torus" + std::to_string(tori_count);
-        torusPosition = defaultObjectPosition;
-        torusRotation = defaultObjectRotation;
-        torusScale = defaultObjectScale;
-        torusBigRadius = defaultTorusBigRadius;
-        torusSmallRadius = defaultTorusSmallRadius;
-        torusThetaSamples = defaultTorusThetaSamples;
-        torusPhiSamples = defaultTorusPhiSamples;
-        tori_count++;
-    }
-
-    // Object List
-    if (ImGui::TreeNode("Object List")) {
-        for (auto& obj : object_registry.objects) {
-            bool is_selected = (obj == selectedObject);
-            if (ImGui::Selectable(obj->name.c_str(), is_selected)) {
-                selectedObject = obj;
-
-                if (Torus* torus = dynamic_cast<Torus*>(selectedObject)) {
-                    torusPosition = myglm::vec3(torus->transform[3]);
-                    myglm::quat rotation_quat = myglm::quat_cast(torus->transform);
-                    torusRotation = myglm::eulerAngles(rotation_quat);
-                    torusRotation = myglm::degrees(torusRotation);
-                    torusScale = myglm::vec3(myglm::length(myglm::vec3(torus->transform[0])), myglm::length(myglm::vec3(torus->transform[1])), myglm::length(myglm::vec3(torus->transform[2])));
-                    torusBigRadius = torus->big_radius;
-                    torusSmallRadius = torus->small_radius;
-                    torusThetaSamples = torus->theta_samples;
-                    torusPhiSamples = torus->phi_samples;
-                }
-            }
-        }
-        ImGui::TreePop();
-    }
-
-    // Object Properties
-    if (selectedObject != nullptr) {
-        if (ImGui::TreeNode("Object Properties")) {
-            if (Torus* torus = dynamic_cast<Torus*>(selectedObject)) {
-                ImGui::DragFloat3("Position", myglm::value_ptr(torusPosition), 0.1f);
-                ImGui::DragFloat3("Rotation", myglm::value_ptr(torusRotation), 1.0f);
-                ImGui::DragFloat3("Scale", myglm::value_ptr(torusScale), 0.1f);
-                ImGui::DragFloat("Big Radius", &torusBigRadius, 0.05f, 0.01f);
-                if (torusBigRadius < 0.01f) {
-                    torusBigRadius = 0.01f;
-                }
-                ImGui::DragFloat("Small Radius", &torusSmallRadius, 0.05f, 0.01f);
-                if (torusSmallRadius < 0.01f) {
-                    torusSmallRadius = 0.01f;
-                }
-                ImGui::DragInt("Theta Samples", &torusThetaSamples, 1, 3);
-                if (torusThetaSamples < 3) {
-                    torusThetaSamples = 3;
-                }
-                ImGui::DragInt("Phi Samples", &torusPhiSamples, 1, 3);
-                if (torusPhiSamples < 3) {
-                    torusPhiSamples = 3;
-                }
-
-                auto model = myglm::mat4(1.0f);
-
-                model = myglm::translate(model, torusPosition);
-
-                model = myglm::rotate(model, myglm::radians(torusRotation.x), myglm::vec3(1.0f, 0.0f, 0.0f));
-                model = myglm::rotate(model, myglm::radians(torusRotation.y), myglm::vec3(0.0f, 1.0f, 0.0f));
-                model = myglm::rotate(model, myglm::radians(torusRotation.z), myglm::vec3(0.0f, 0.0f, 1.0f));
-
-                model = myglm::scale(model, torusScale);
-
-                torus->transform = model;
-
-                torus->big_radius = torusBigRadius;
-                torus->small_radius = torusSmallRadius;
-                torus->theta_samples = torusThetaSamples;
-                torus->phi_samples = torusPhiSamples;
-            }
-            ImGui::TreePop();
-        }
-    }
-
-    ImGui::End();
-
+void render_fps_counter() {
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowBgAlpha(0.35f);
     ImGui::Begin("FPS", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
     ImGui::Text("FPS: %.1f", fps);
     ImGui::End();
+}
+
+void add_torus(Torus* torus, bool in_cursor = true, bool select = false) {
+    objects.push_back(torus);
+    if (in_cursor) {
+        torus->transform = objects[0]->transform;
+    }
+    if (select) {
+        selected_objects.clear();
+        selected_objects.insert(torus);
+    }
+}
+
+void render_options_menu() {
+    ImGui::Begin("Options", nullptr, ImGuiWindowFlags_NoCollapse);
+    if (ImGui::Button("Torus")) {
+        auto ptorus = new Torus(1.0f, 0.1f, 25, 25, torus_shader);
+        add_torus(ptorus);
+    }
+
+    if (ImGui::Button("Point")) {
+        auto ppoint = new Point(point_shader);
+        objects.push_back(ppoint);
+        ppoint->transform = objects[0]->transform;
+    }
+
+    ImGui::End();
+}
+
+void render_single_object_transform_menu() {
+    ImGui::Begin("Transform", &showTransformMenu);
+    auto& selected_obj = *selected_objects.begin();
+
+    transform_window_trans[0] = selected_obj->transform.translation.x;
+    transform_window_trans[1] = selected_obj->transform.translation.y;
+    transform_window_trans[2] = selected_obj->transform.translation.z;
+
+    transform_window_scale[0] = selected_obj->transform.s.x;
+    transform_window_scale[1] = selected_obj->transform.s.y;
+    transform_window_scale[2] = selected_obj->transform.s.z;
+
+    vec3 euler_angles = eulerAngles(selected_obj->transform.q);
+
+    transform_window_rot[0] = degrees(euler_angles.x);
+    transform_window_rot[1] = degrees(euler_angles.y);
+    transform_window_rot[2] = degrees(euler_angles.z);
+
+    if (ImGui::SliderFloat3("translation", transform_window_trans, -5.0f, 5.0f) ) {
+        selected_obj->transform.translation.x = transform_window_trans[0];
+        selected_obj->transform.translation.y = transform_window_trans[1];
+        selected_obj->transform.translation.z = transform_window_trans[2];
+    }
+    if (ImGui::SliderFloat3("rotation", transform_window_rot, -89.99, 89.99) ) {
+        float rad_x = radians(transform_window_rot[0]);
+        float rad_y = radians(transform_window_rot[1]);
+        float rad_z = radians(transform_window_rot[2]);
+
+        quat quat_x = angleAxis(rad_x, vec3(1, 0, 0));
+        quat quat_y = angleAxis(rad_y, vec3(0, 1, 0));
+        quat quat_z = angleAxis(rad_z, vec3(0, 0, 1));
+
+        quat final_rotation = quat_z * quat_y * quat_x;
+
+        selected_obj->transform.q = final_rotation;
+    }
+    if (ImGui::SliderFloat3("scale", transform_window_scale, 0.1f, 5.0f) ) {
+        selected_obj->transform.s.x = transform_window_scale[0];
+        selected_obj->transform.s.y = transform_window_scale[1];
+        selected_obj->transform.s.z = transform_window_scale[2];
+    }
+    ImGui::End();
+}
+
+void render_objects_list_window() {
+    ImGui::Begin("Objects", nullptr, ImGuiWindowFlags_NoCollapse);
+    for (int i = 0; i < objects.size(); ++i) {
+        auto& obj = objects[i];
+        std::string& item_name = obj->name;
+        char buffer[256];
+        strcpy(buffer, item_name.c_str());
+
+        ImGui::PushID(i); // Unique ID for each item
+
+        if (ImGui::InputText("", buffer, IM_ARRAYSIZE(buffer))) {
+            obj->name = buffer;
+        }
+
+        if (ImGui::IsItemClicked()) {
+            selected_objects.clear();
+            selected_objects.insert(objects[i]);
+        }
+
+        if (item_name != "cursor") {
+            ImGui::SameLine();
+            if (ImGui::Button("X")) {
+                delete obj;
+                objects.erase(objects.begin() + i);
+                selected_objects.clear();
+            }
+        }
+
+        ImGui::PopID();
+    }
+
+    ImGui::End();
+}
+
+void render_torus_menu() {
+    ImGui::Begin("Torus", nullptr, ImGuiWindowFlags_NoCollapse);
+
+    auto& basePtr = *selected_objects.begin();
+    Torus* obj = dynamic_cast<Torus*>(basePtr);
+
+    big_radius_menu = obj->big_radius;
+    small_radius_menu = obj->small_radius;
+    theta_samples_menu = obj->theta_samples;
+    phi_samples_menu = obj->phi_samples;
+
+    if (ImGui::SliderFloat("R", &big_radius_menu, 0.1f, 5.0f) ) {
+        auto ptorus = new Torus(big_radius_menu, obj->small_radius, obj->theta_samples, obj->phi_samples, torus_shader, obj->transform, obj->name);
+        objects.erase(std::remove(objects.begin(), objects.end(), obj), objects.end());
+        delete obj;
+        selected_objects.erase(obj);
+        add_torus(ptorus, false, true);
+    }
+
+    if (ImGui::SliderFloat("r", &small_radius_menu, 0.1f, 5.0f) ) {
+        auto ptorus = new Torus(obj->big_radius, small_radius_menu, obj->theta_samples, obj->phi_samples, torus_shader, obj->transform, obj->name);
+        objects.erase(std::remove(objects.begin(), objects.end(), obj), objects.end());
+        delete obj;
+        selected_objects.erase(obj);
+        add_torus(ptorus, false, true);
+    }
+
+    if (ImGui::SliderInt("theta", &theta_samples_menu, 3, 100) ) {
+        auto ptorus = new Torus(obj->big_radius, obj->small_radius, theta_samples_menu, obj->phi_samples, torus_shader, obj->transform, obj->name);
+        objects.erase(std::remove(objects.begin(), objects.end(), obj), objects.end());
+        delete obj;
+        selected_objects.erase(obj);
+        add_torus(ptorus, false, true);
+    }
+
+    if (ImGui::SliderInt("phi", &phi_samples_menu, 3, 100) ) {
+        auto ptorus = new Torus(obj->big_radius, obj->small_radius, obj->theta_samples, phi_samples_menu, torus_shader, obj->transform, obj->name);
+        objects.erase(std::remove(objects.begin(), objects.end(), obj), objects.end());
+        delete obj;
+        selected_objects.erase(obj);
+        add_torus(ptorus, false, true);
+    }
+
+    ImGui::End();
+}
+
+bool is_torus_selected() {
+    return (selected_objects.size() == 1) && ((*selected_objects.begin())->uid == 1);
+}
+
+void render_gui() {
+    if (selected_objects.size() == 1) {
+        render_single_object_transform_menu();
+    }
+
+    if (is_torus_selected()) {
+        render_torus_menu();
+    }
+
+    render_options_menu();
+    render_objects_list_window();
+    render_fps_counter();
 }
 
 unsigned int gridVAO, gridVBO;
@@ -269,7 +352,8 @@ void initializeGridBuffers() {
     glBindVertexArray(gridVAO);
 
     glBindBuffer(GL_ARRAY_BUFFER, gridVBO);
-    glBufferData(GL_ARRAY_BUFFER, gridVertices.size() * sizeof(myglm::vec3), gridVertices.data(), GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, gridVertices.size() * sizeof(vec3), gridVertices.data(), GL_STATIC_DRAW);
+
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
 
@@ -277,92 +361,15 @@ void initializeGridBuffers() {
 }
 
 void render_grid() {
-    unsigned int shaderProgram = shader_manager.shader_program({"grid"});
+    glUseProgram(grid_shader_program);
 
-    glUseProgram(shaderProgram);
-
-    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, myglm::value_ptr(projection));
-    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "view"), 1, GL_FALSE, myglm::value_ptr(view));
+    glUniformMatrix4fv(glGetUniformLocation(grid_shader_program, "projection"), 1, GL_FALSE, value_ptr(projection));
+    glUniformMatrix4fv(glGetUniformLocation(grid_shader_program, "view"), 1, GL_FALSE, value_ptr(view));
 
     glBindVertexArray(gridVAO);
     glDrawArrays(GL_LINES, 0, gridVertices.size());
     glBindVertexArray(0);
-
-    glDeleteProgram(shaderProgram);
 }
-
-void render_mesh(const std::pair<Vertices, Triangles>& buffers, const std::string& shader_name, const myglm::mat4& model) {
-    unsigned int shaderProgram = shader_manager.shader_program({shader_name});
-
-    glUseProgram(shaderProgram);
-
-    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, myglm::value_ptr(projection));
-    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "view"), 1, GL_FALSE, myglm::value_ptr(view));
-    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, myglm::value_ptr(model));
-
-    unsigned int VAO, VBO, EBO;
-    glGenVertexArrays(1, &VAO);
-    glGenBuffers(1, &VBO);
-    glGenBuffers(1, &EBO);
-
-    glBindVertexArray(VAO);
-
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, buffers.first.size() * sizeof(VertexFormat), buffers.first.data(), GL_STATIC_DRAW);
-
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, buffers.second.size() * sizeof(IndexFormat), buffers.second.data(), GL_STATIC_DRAW);
-
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(VertexFormat), (void*)0);
-    glEnableVertexAttribArray(0);
-
-    glBindVertexArray(VAO);
-    glDrawElements(GL_TRIANGLES, buffers.second.size() * 3, GL_UNSIGNED_SHORT, 0);
-    glBindVertexArray(0);
-
-    glDeleteVertexArrays(1, &VAO);
-    glDeleteBuffers(1, &VBO);
-    glDeleteBuffers(1, &EBO);
-
-    glDeleteProgram(shaderProgram);
-}
-
-void render_wireframe(const std::pair<Vertices, Lines>& buffers, const std::string& shader_name, const myglm::mat4& model) {
-    unsigned int shaderProgram = shader_manager.shader_program({shader_name});
-    // TODO create buffer once
-    glUseProgram(shaderProgram);
-
-    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, myglm::value_ptr(projection));
-    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "view"), 1, GL_FALSE, myglm::value_ptr(view));
-    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, myglm::value_ptr(model));
-
-    unsigned int VAO, VBO, EBO;
-    glGenVertexArrays(1, &VAO);
-    glGenBuffers(1, &VBO);
-    glGenBuffers(1, &EBO);
-
-    glBindVertexArray(VAO);
-
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, buffers.first.size() * sizeof(VertexFormat), buffers.first.data(), GL_STATIC_DRAW);
-
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, buffers.second.size() * sizeof(LineFormat), buffers.second.data(), GL_STATIC_DRAW);
-
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(VertexFormat), (void*)0);
-    glEnableVertexAttribArray(0);
-
-    glBindVertexArray(VAO);
-    glDrawElements(GL_LINES, buffers.second.size() * 2, GL_UNSIGNED_SHORT, 0);
-    glBindVertexArray(0);
-
-    glDeleteVertexArrays(1, &VAO);
-    glDeleteBuffers(1, &VBO);
-    glDeleteBuffers(1, &EBO);
-
-    glDeleteProgram(shaderProgram);
-}
-
 
 int main() {
     if (!glfwInit()) {
@@ -401,10 +408,22 @@ int main() {
     ImGui_ImplOpenGL3_Init("#version 460");
 
     glEnable(GL_DEPTH_TEST);
+    glEnable(GL_STENCIL_TEST);
 
     initializeGridBuffers();
 
     lastTime = std::chrono::high_resolution_clock::now();
+
+    grid_shader_program = shader_manager.shader_program({"grid"});
+    cursor_shader = shader_manager.shader_program({"cursor"});
+    torus_shader = shader_manager.shader_program({"torus"});
+    point_shader = shader_manager.shader_program({"point"});
+
+    objects.emplace_back(new Cursor(cursor_shader));
+
+    objects.emplace_back(new Torus(1.0f, 0.1f, 25, 25, torus_shader));
+
+    glEnable(GL_PROGRAM_POINT_SIZE);
 
     while (!glfwWindowShouldClose(window)) {
         processInput();
@@ -415,38 +434,28 @@ int main() {
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        int imguiWindowWidth = 250;
-        glViewport(0, 0, width - imguiWindowWidth, height);
+        glViewport(0, 0, width, height);
 
-        float ascpet_ratio = static_cast<float>(width - imguiWindowWidth) / static_cast<float>(height);
-        projection = myglm::perspective(myglm::radians(fov),  ascpet_ratio, 0.1f, orbit_distance * 10.0f);
+        float ascpet_ratio = static_cast<float>(width) / static_cast<float>(height);
+        projection = perspective(radians(fov),  ascpet_ratio, 0.1f, orbit_distance * 10.0f);
 
-        myglm::vec3 camera_position = target_position + myglm::vec3(
-            orbit_distance * cos(myglm::radians(orbit_yaw)) * cos(myglm::radians(orbit_pitch)),
-            orbit_distance * sin(myglm::radians(orbit_pitch)),
-            orbit_distance * sin(myglm::radians(orbit_yaw)) * cos(myglm::radians(orbit_pitch))
+        camera_position = target_position + vec3(
+            orbit_distance * cos(radians(orbit_yaw)) * cos(radians(orbit_pitch)),
+            orbit_distance * sin(radians(orbit_pitch)),
+            orbit_distance * sin(radians(orbit_yaw)) * cos(radians(orbit_pitch))
         );
 
-        view = myglm::lookAt(camera_position, target_position, myglm::vec3(0.0f, 1.0f, 0.0f));
+        view = lookAt(camera_position, target_position, vec3(0.0f, 1.0f, 0.0f));
 
         render_grid();
 
-        for (const auto obj : object_registry.objects) {
-            const bool wireframe = obj->wireframe;
-            const auto shader_name = obj->shader();
-            const auto model = obj->transform;
-
-            if (wireframe) {
-                const auto buffers = object_registry.get_wireframe(obj);
-                render_wireframe(buffers, shader_name, model);
-            } else {
-                const auto buffers = object_registry.get_mesh(obj);
-                render_mesh(buffers, shader_name, model);
+        for (auto& object : objects) {
+            vec3 color = vec3(0.8f, 0.6f, 0.2f);
+            if (selected_objects.contains(object)) {
+                color = vec3(1.0f, 0.8f, 0.3f);
             }
+            object->draw(projection, view, color);
         }
-
-        ImGui::SetNextWindowPos(ImVec2(width - imguiWindowWidth, 0));
-        ImGui::SetNextWindowSize(ImVec2(imguiWindowWidth, height));
 
         render_gui();
 

@@ -34,6 +34,10 @@ namespace myglm {
             return vec3(x * scalar, y * scalar, z * scalar);
         }
 
+        vec3 operator*(const vec3& other) const {
+            return vec3(x * other.x, y * other.y, z * other.z);
+        }
+
         vec3 operator/(float scalar) const {
             return vec3(x / scalar, y / scalar, z / scalar);
         }
@@ -94,7 +98,7 @@ namespace myglm {
             float w = elements[0][3] * other.x + elements[1][3] * other.y + elements[2][3] * other.z + elements[3][3];
 
             if (w != 0.0f && w != 1.0f) {
-                result = result / w;
+                result = vec3(result.x / w, result.y / w, result.z / w);
             }
             return result;
         }
@@ -141,6 +145,15 @@ namespace myglm {
                 z = q[2];
                 w = q[3];
             }
+        }
+
+        quat operator*(const quat& q) const {
+            return quat(
+                w * q.w - x * q.x - y * q.y - z * q.z,
+                w * q.x + x * q.w + y * q.z - z * q.y,
+                w * q.y - x * q.z + y * q.w + z * q.x,
+                w * q.z + x * q.y - y * q.x + z * q.w
+            );
         }
     };
 
@@ -321,7 +334,7 @@ namespace myglm {
         float pitch = std::asin(2.0f * (nq.w * nq.y - nq.z * nq.x));
         float yaw = std::atan2(2.0f * (nq.w * nq.z + nq.x * nq.y), 1.0f - 2.0f * (nq.y * nq.y + nq.z * nq.z));
 
-        return -vec3(roll, pitch, yaw);
+        return vec3(roll, pitch, yaw);
     }
 
     float radians(float degrees) {
@@ -368,5 +381,177 @@ namespace myglm {
 
     vec3 normalize(const vec3& v) {
         return v / v.length();
+    }
+
+    mat4 rot_mat(const quat& q) {
+        mat4 mat;
+
+        float xx = q.x * q.x;
+        float xy = q.x * q.y;
+        float xz = q.x * q.z;
+        float xw = q.x * q.w;
+        float yy = q.y * q.y;
+        float yz = q.y * q.z;
+        float yw = q.y * q.w;
+        float zz = q.z * q.z;
+        float zw = q.z * q.w;
+
+        mat[0][0] = 1 - 2 * (yy + zz);
+        mat[0][1] = 2 * (xy - zw);
+        mat[0][2] = 2 * (xz + yw);
+        mat[0][3] = 0;
+
+        mat[1][0] = 2 * (xy + zw);
+        mat[1][1] = 1 - 2 * (xx + zz);
+        mat[1][2] = 2 * (yz - xw);
+        mat[1][3] = 0;
+
+        mat[2][0] = 2 * (xz - yw);
+        mat[2][1] = 2 * (yz + xw);
+        mat[2][2] = 1 - 2 * (xx + yy);
+        mat[2][3] = 0;
+
+        mat[3][0] = 0;
+        mat[3][1] = 0;
+        mat[3][2] = 0;
+        mat[3][3] = 1;
+
+        return transpose(mat);
+    }
+
+    mat4 trans_mat(const vec3& translation_vector) {
+        mat4 mat(1.0f);
+        mat[0][3] = translation_vector.x;
+        mat[1][3] = translation_vector.y;
+        mat[2][3] = translation_vector.z;
+        return transpose(mat);
+    }
+
+    mat4 scale_mat(const vec3& scale_vector) {
+        mat4 mat(1.0f);
+        mat[0][0] = scale_vector.x;
+        mat[1][1] = scale_vector.y;
+        mat[2][2] = scale_vector.z;
+        return transpose(mat);
+    }
+
+    quat angleAxis(float angle, const vec3& axis) {
+        vec3 normalized_axis = normalize(axis);
+        float half_angle = angle * 0.5f;
+        float s = sin(half_angle);
+
+        return quat(
+            cos(half_angle),
+            normalized_axis.x * s,
+            normalized_axis.y * s,
+            normalized_axis.z * s
+        );
+    }
+
+    struct vec4 {
+        float x, y, z, w;
+
+        constexpr vec4() : x(0.0f), y(0.0f), z(0.0f), w(0.0f) {}
+        constexpr vec4(float x_, float y_, float z_, float w_) : x(x_), y(y_), z(z_), w(w_) {}
+        constexpr vec4(const float* arr) : x(arr[0]), y(arr[1]), z(arr[2]), w(arr[3]) {}
+
+        vec4 operator+(const vec4& other) const {
+            return vec4(x + other.x, y + other.y, z + other.z, w + other.w);
+        }
+
+        vec4 operator-(const vec4& other) const {
+            return vec4(x - other.x, y - other.y, z - other.z, w - other.w);
+        }
+
+        vec4 operator*(float scalar) const {
+            return vec4(x * scalar, y * scalar, z * scalar, w * scalar);
+        }
+
+        vec4 operator/(float scalar) const {
+            return vec4(x / scalar, y / scalar, z / scalar, w / scalar);
+        }
+
+        float length() const {
+            return std::sqrt(x * x + y * y + z * z + w * w);
+        }
+
+        constexpr vec4& operator=(const vec4& other) {
+            x = other.x;
+            y = other.y;
+            z = other.z;
+            w = other.w;
+            return *this;
+        }
+
+        vec4 operator-() const {
+            return vec4(-x, -y, -z, -w);
+        }
+    };
+
+    bool all_close(const mat4& a, const mat4& b, float rtol = 1e-5f, float atol = 1e-8f) {
+        for (int i = 0; i < 4; ++i) {
+            for (int j = 0; j < 4; ++j) {
+                if (std::abs(a.elements[i][j] - b.elements[i][j]) > atol + rtol * std::abs(b.elements[i][j])) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    vec3 vec3_from_vec4(vec4 v) {
+        return vec3(v.x, v.y, v.z);
+    }
+
+    vec3 mul(const mat4& mat, const vec3& vec) {
+        vec3 result;
+        result.x = mat.elements[0][0] * vec.x + mat.elements[1][0] * vec.y + mat.elements[2][0] * vec.z + mat.elements[3][0];
+        result.y = mat.elements[0][1] * vec.x + mat.elements[1][1] * vec.y + mat.elements[2][1] * vec.z + mat.elements[3][1];
+        result.z = mat.elements[0][2] * vec.x + mat.elements[1][2] * vec.y + mat.elements[2][2] * vec.z + mat.elements[3][2];
+        float w = mat.elements[0][3] * vec.x + mat.elements[1][3] * vec.y + mat.elements[2][3] * vec.z + mat.elements[3][3];
+
+        if (w != 0.0f && w != 1.0f) {
+            result = result / w;
+        }
+        return result;
+    }
+
+    vec4 mul(const mat4& mat, const vec4& vec) {
+        vec4 result;
+        result.x = mat.elements[0][0] * vec.x + mat.elements[1][0] * vec.y + mat.elements[2][0] * vec.z + mat.elements[3][0] * vec.w;
+        result.y = mat.elements[0][1] * vec.x + mat.elements[1][1] * vec.y + mat.elements[2][1] * vec.z + mat.elements[3][1] * vec.w;
+        result.z = mat.elements[0][2] * vec.x + mat.elements[1][2] * vec.y + mat.elements[2][2] * vec.z + mat.elements[3][2] * vec.w;
+        result.w = mat.elements[0][3] * vec.x + mat.elements[1][3] * vec.y + mat.elements[2][3] * vec.z + mat.elements[3][3] * vec.w;
+        return result;
+    }
+
+    void print_mat4(const mat4& mat) {
+        std::cout << "Inverted Matrix:" << std::endl;
+        for (int i = 0; i < 4; ++i) {
+            for (int j = 0; j < 4; ++j) {
+                std::cout << mat.elements[i][j] << " "; // glm matrices are column-major
+            }
+            std::cout << std::endl;
+        }
+    }
+
+    vec3 min(const vec3& a, const vec3& b) {
+        return vec3(std::min(a.x, b.x), std::min(a.y, b.y), std::min(a.z, b.z));
+    }
+
+    vec3 max(const vec3& a, const vec3& b) {
+        return vec3(std::max(a.x, b.x), std::max(a.y, b.y), std::max(a.z, b.z));
+    }
+
+    float max(float a, float b, float c) {
+        return std::max(std::max(a, b), c);
+    }
+
+    float min(float a, float b, float c) {
+        return std::min(std::min(a, b), c);
+    }
+
+    constexpr vec4 make_vec4(const vec3& v, float w) {
+        return vec4(v.x, v.y, v.z, w);
     }
 }

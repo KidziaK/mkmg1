@@ -2,59 +2,125 @@
 
 #include <myglm.h>
 #include <array>
-#include <functional>
-#include "lru_cache.h"
+#include <vector>
+
+using namespace myglm;
+
+using Vertex = vec3;
+using Triangle = u16vec3;
+using Edge = u16vec2;
 
 constexpr int gridSize = 1000;
 constexpr int gridVertexCount = (2 * gridSize + 1) * 4;
 
-static constexpr std::array<myglm::vec3, gridVertexCount> generateGridVertices(int gridSize) {
-    std::array<myglm::vec3, gridVertexCount> vertices{};
+static constexpr std::array<Vertex, gridVertexCount> generateGridVertices(int gridSize) {
+    std::array<Vertex, gridVertexCount> vertices{};
     int index = 0;
 
     for (int i = -gridSize; i <= gridSize; ++i) {
-        vertices[index++] = myglm::vec3(i, 0, -gridSize);
-        vertices[index++] = myglm::vec3(i, 0, gridSize);
-        vertices[index++] = myglm::vec3(-gridSize, 0, i);
-        vertices[index++] = myglm::vec3(gridSize, 0, i);
+        vertices[index++] = vec3(i, 0, -gridSize);
+        vertices[index++] = vec3(i, 0, gridSize);
+        vertices[index++] = vec3(-gridSize, 0, i);
+        vertices[index++] = vec3(gridSize, 0, i);
     }
     return vertices;
 }
 
-using VertexFormat = myglm::vec3;
-using IndexFormat = myglm::u16vec3;
-using LineFormat = myglm::u16vec2;
 
-struct Object {
-    virtual ~Object() = default;
 
-    bool wireframe = true;
+struct Transform {
+    quat q;
+    vec3 translation;
+    vec3 s;
 
-    myglm::mat4 transform = myglm::mat4(1.0f); // TODO use quaternion, scale, translation instead.
+    static Transform identity() {
+        Transform transform{};
+        transform.translation = vec3(0, 0, 0);
+        transform.q = quat(1, 0, 0, 0);
+        transform.s = vec3(1, 1, 1);
+        return transform;
+    }
 
-    std::string name;
-
-    [[nodiscard]] virtual std::string shader() const = 0;
-    [[nodiscard]] virtual std::vector<VertexFormat> vertices() const = 0;
-    [[nodiscard]] virtual std::vector<IndexFormat> triangles() const = 0;
-    [[nodiscard]] virtual std::vector<LineFormat> lines() const = 0;
-    [[nodiscard]] virtual size_t hash() const = 0;
+    mat4 to_mat4() const {
+        mat4 rotation_mat = rot_mat(q);
+        mat4 translation_mat = translate(mat4(1.0f), translation);
+        mat4 s_mat = scale(mat4(1.0f), s);
+        return  s_mat  * rotation_mat * translation_mat;
+    }
 };
 
-struct Torus final : Object {
+struct Object {
+    std::string name;
+    Transform transform;
+    // std::vector<Vertex> vertices;
+    // std::vector<Edge> edges;
+    unsigned int VAO, VBO, EBO;
+    unsigned int shader;
+    unsigned int num_edges;
+    unsigned int uid;
+
+    virtual void draw(const mat4& projection, const mat4& view, vec3& color) {
+        mat4 model = transform.to_mat4();
+
+        glUseProgram(shader);
+
+        glUniformMatrix4fv(glGetUniformLocation(shader, "projection"), 1, GL_FALSE, value_ptr(projection));
+        glUniformMatrix4fv(glGetUniformLocation(shader, "view"), 1, GL_FALSE, value_ptr(view));
+        glUniformMatrix4fv(glGetUniformLocation(shader, "model"), 1, GL_FALSE, value_ptr(model));
+        glUniform3fv(glGetUniformLocation(shader, "u_color"), 1, value_ptr(color));
+
+        glBindVertexArray(VAO);
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+
+        glDrawElements(GL_LINES, num_edges * 2, GL_UNSIGNED_SHORT, 0);
+        glBindVertexArray(0);
+    }
+
+    virtual ~Object() {
+        glDeleteBuffers(1, &VBO);
+        glDeleteBuffers(1, &EBO);
+        glDeleteVertexArrays(1, &VAO);
+    }
+};
+
+struct Torus : Object {
     float big_radius;
     float small_radius;
     unsigned int theta_samples;
     unsigned int phi_samples;
 
-    [[nodiscard]]
-    std::string shader() const override {
-        return "torus";
+    Torus(
+        float big_radius, float small_radius, unsigned int theta_samples, unsigned int phi_samples,
+        const unsigned int shader, Transform transform = Transform::identity(), const std::string& name = "torus"
+    )
+    : big_radius(big_radius), small_radius(small_radius), theta_samples(theta_samples), phi_samples(phi_samples) {
+        this->transform = transform;
+        this->name = name;
+        auto vertices = calc_vertices();
+        auto edges = calc_edges();
+        this->num_edges = edges.size();
+        this->shader = shader;
+        this->uid = 1;
+
+        glGenVertexArrays(1, &VAO);
+        glGenBuffers(1, &VBO);
+        glGenBuffers(1, &EBO);
+
+        glBindVertexArray(VAO);
+
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(Vertex), vertices.data(), GL_STATIC_DRAW);
+
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, edges.size() * sizeof(Edge), edges.data(), GL_STATIC_DRAW);
+
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)0);
+        glEnableVertexAttribArray(0);
     }
 
-    [[nodiscard]]
-    std::vector<VertexFormat> vertices() const override {
-        std::vector<VertexFormat> vertices;
+    [[nodiscard]] std::vector<Vertex> calc_vertices() const {
+        std::vector<Vertex> vertices;
         vertices.reserve(theta_samples * phi_samples);
 
         for (unsigned int i = 0; i <= theta_samples; ++i) {
@@ -72,10 +138,9 @@ struct Torus final : Object {
         return vertices;
     }
 
-    [[nodiscard]]
-    std::vector<IndexFormat> triangles() const override {
-        std::vector<IndexFormat> triangles;
-        triangles.reserve(theta_samples * phi_samples * 2);
+    [[nodiscard]] std::vector<Edge> calc_edges() const {
+        std::vector<Edge> edges;
+        edges.reserve(theta_samples * phi_samples * 6);
 
         for (unsigned int i = 0; i < theta_samples; ++i) {
             for (unsigned int j = 0; j < phi_samples; ++j) {
@@ -84,128 +149,141 @@ struct Torus final : Object {
                 unsigned int index3 = ((i + 1) * (phi_samples + 1)) + j;
                 unsigned int index4 = ((i + 1) * (phi_samples + 1)) + j + 1;
 
-                triangles.emplace_back(index1, index2, index3);
-                triangles.emplace_back(index2, index4, index3);
+                edges.emplace_back(index1, index2);
+                edges.emplace_back(index2, index3);
+                edges.emplace_back(index3, index1);
+
+                edges.emplace_back(index2, index4);
+                edges.emplace_back(index4, index3);
+                edges.emplace_back(index3, index2);
             }
         }
-        return triangles;
+        return edges;
     }
 
-    [[nodiscard]]
-    std::vector<LineFormat> lines() const override {
-        std::vector<LineFormat> lines;
-        lines.reserve(theta_samples * phi_samples * 6);
+};
 
-        for (unsigned int i = 0; i < theta_samples; ++i) {
-            for (unsigned int j = 0; j < phi_samples; ++j) {
-                unsigned int index1 = (i * (phi_samples + 1)) + j;
-                unsigned int index2 = (i * (phi_samples + 1)) + j + 1;
-                unsigned int index3 = ((i + 1) * (phi_samples + 1)) + j;
-                unsigned int index4 = ((i + 1) * (phi_samples + 1)) + j + 1;
+struct Cursor : Object {
+    Cursor(const unsigned int shader, const std::string& name = "cursor") {
+        this->transform = Transform::identity();
+        this->name = name;
+        auto vertices = generateArrowVertices();
+        auto edges = generateArrowEdges();
+        this->num_edges = edges.size();
+        this->shader = shader;
+        this->uid = 0;
 
-                lines.emplace_back(index1, index2);
-                lines.emplace_back(index2, index3);
-                lines.emplace_back(index3, index1);
+        glGenVertexArrays(1, &VAO);
+        glGenBuffers(1, &VBO);
+        glGenBuffers(1, &EBO);
 
-                lines.emplace_back(index2, index4);
-                lines.emplace_back(index4, index3);
-                lines.emplace_back(index3, index2);
+        glBindVertexArray(VAO);
+
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        glBufferData(GL_ARRAY_BUFFER, vertices.size() * 6 * sizeof(float), vertices.data(), GL_STATIC_DRAW);
+
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, edges.size() * sizeof(Edge), edges.data(), GL_STATIC_DRAW);
+
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(0);
+
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+        glEnableVertexAttribArray(1);
+    }
+
+    static std::array<float, 36> generateArrowVertices() {
+        return {
+            0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f,
+            1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f,
+            0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f,
+            0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f,
+            0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f,
+            0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f,
+        };
+    }
+
+    static std::array<unsigned short, 6> generateArrowEdges() {
+        return {
+            0, 1,
+            2, 3,
+            4, 5
+        };
+    }
+
+};
+
+struct Point : Object {
+    unsigned int samples;
+    float radius;
+
+    Point(const unsigned int shader, const std::string& name = "point") {
+        this->samples = 20;
+        this->radius = 0.01f;
+        this->transform = Transform::identity();
+        this->name = name;
+        auto vertices = calc_vertices();
+        auto edges = calc_edges();
+        this->num_edges = edges.size();
+        this->shader = shader;
+        this->uid = 2;
+
+        glGenVertexArrays(1, &VAO);
+        glGenBuffers(1, &VBO);
+        glGenBuffers(1, &EBO);
+
+        glBindVertexArray(VAO);
+
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(Vertex), vertices.data(), GL_STATIC_DRAW);
+
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, edges.size() * sizeof(Edge), edges.data(), GL_STATIC_DRAW);
+
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)0);
+        glEnableVertexAttribArray(0);
+    }
+
+    [[nodiscard]] std::vector<Vertex> calc_vertices() const {
+        std::vector<Vertex> vertices;
+        vertices.reserve(samples * samples);
+
+        for (unsigned int i = 0; i <= samples; ++i) {
+            const float theta = 2.0f * M_PIf * static_cast<float>(i) / static_cast<float>(samples);
+            for (unsigned int j = 0; j <= samples; ++j) {
+                const float phi = M_PIf * static_cast<float>(j) / static_cast<float>(samples);
+
+                float x = radius * cosf(theta) * sinf(phi);
+                float y = radius * sinf(theta) * sinf(phi);
+                float z = radius * cosf(phi);
+
+                vertices.emplace_back(x, y, z);
             }
         }
-        return lines;
+        return vertices;
     }
 
-    [[nodiscard]]
-    size_t hash() const override {
-        size_t seed = 0;
+    [[nodiscard]] std::vector<Edge> calc_edges() const {
+        std::vector<Edge> edges;
+        edges.reserve(samples * samples * 6);
 
-        std::string typeName = typeid(*this).name();
-        for (char c : typeName) {
-            seed ^= std::hash<char>{}(c) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+        for (unsigned int i = 0; i < samples; ++i) {
+            for (unsigned int j = 0; j < samples; ++j) {
+                unsigned int index1 = (i * (samples + 1)) + j;
+                unsigned int index2 = (i * (samples + 1)) + j + 1;
+                unsigned int index3 = ((i + 1) * (samples + 1)) + j;
+                unsigned int index4 = ((i + 1) * (samples + 1)) + j + 1;
+
+                edges.emplace_back(index1, index2);
+                edges.emplace_back(index2, index3);
+                edges.emplace_back(index3, index1);
+
+                edges.emplace_back(index2, index4);
+                edges.emplace_back(index4, index3);
+                edges.emplace_back(index3, index2);
+            }
         }
-
-        seed ^= std::hash<float>{}(big_radius) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-        seed ^= std::hash<float>{}(small_radius) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-        seed ^= std::hash<unsigned int>{}(theta_samples) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-        seed ^= std::hash<unsigned int>{}(phi_samples) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-
-        return seed;
+        return edges;
     }
 
-    Torus() = default;
-
-    Torus(float r, float R, int s_phi, int s_theta) : small_radius(r), big_radius(R), theta_samples(s_phi), phi_samples(s_theta) {}
 };
-
-using Vertices = std::vector<VertexFormat>;
-using Triangles = std::vector<IndexFormat>;
-using Lines = std::vector<LineFormat>;
-
-struct ObjectRegistry {
-    std::vector<Object*> objects;
-    LRUCache<size_t, std::pair<Vertices, Triangles>> mesh_buffers;
-    LRUCache<size_t, std::pair<Vertices, Lines>> wireframe_buffers;
-
-    ObjectRegistry(size_t mesh_capacity, size_t wireframe_capacity) : mesh_buffers(mesh_capacity), wireframe_buffers(wireframe_capacity) {}
-
-    Object* register_object(Object* obj) {
-        objects.emplace_back(obj);
-        return obj;
-    }
-
-    std::pair<Vertices, Triangles> get_mesh(Object* obj) {
-        size_t hash = obj->hash();
-        auto mesh = mesh_buffers.get(hash);
-        if (mesh.first.empty() && mesh.second.empty()) {
-            auto vertices = obj->vertices();
-            auto triangles = obj->triangles();
-            mesh_buffers.put(hash, {vertices, triangles});
-            return {vertices, triangles};
-        }
-        return mesh;
-    }
-
-    std::pair<Vertices, Lines> get_wireframe(Object* obj) {
-        const size_t hash = obj->hash();
-        auto wireframe = wireframe_buffers.get(hash);
-        if (wireframe.first.empty() && wireframe.second.empty()) {
-            auto vertices = obj->vertices();
-            auto lines = obj->lines();
-            wireframe_buffers.put(hash, {vertices, lines});
-            return {vertices, lines};
-        }
-        return wireframe;
-    }
-};
-
-inline std::pair<Vertices, Triangles> generateRotationBall(float radius, int slices, int stacks) {
-    std::vector<VertexFormat> vertices;
-    std::vector<IndexFormat> indices;
-
-    for (int i = 0; i <= stacks; ++i) {
-        float v = static_cast<float>(i) / static_cast<float>(stacks);
-        float phi = v * M_PIf;
-
-        for (int j = 0; j <= slices; ++j) {
-            float u = static_cast<float>(j) / static_cast<float>(slices);
-            float theta = u * 2.0f * M_PIf;
-
-            float x = radius * sin(phi) * cos(theta);
-            float y = radius * cos(phi);
-            float z = radius * sin(phi) * sin(theta);
-
-            vertices.emplace_back(x, y, z);
-        }
-    }
-
-    for (int i = 0; i < stacks; ++i) {
-        for (int j = 0; j < slices; ++j) {
-            int first = (i * (slices + 1)) + j;
-            int second = first + slices + 1;
-
-            indices.emplace_back(first, second, first + 1);
-            indices.emplace_back(second, second + 1, first + 1);
-        }
-    }
-    return {vertices, indices};
-}
