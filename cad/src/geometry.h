@@ -59,7 +59,7 @@ struct Object {
     unsigned int num_edges;
     unsigned int uid;
 
-    virtual void draw(const mat4& projection, const mat4& view, vec3& color) {
+    virtual void draw(const mat4& projection, const mat4& view, bool selected) {
         mat4 model = transform.to_mat4();
 
         glUseProgram(shader);
@@ -67,7 +67,7 @@ struct Object {
         glUniformMatrix4fv(glGetUniformLocation(shader, "projection"), 1, GL_FALSE, value_ptr(projection));
         glUniformMatrix4fv(glGetUniformLocation(shader, "view"), 1, GL_FALSE, value_ptr(view));
         glUniformMatrix4fv(glGetUniformLocation(shader, "model"), 1, GL_FALSE, value_ptr(model));
-        glUniform3fv(glGetUniformLocation(shader, "u_color"), 1, value_ptr(color));
+        glUniform1i(glGetUniformLocation(shader, "u_selected"), selected);
 
         glBindVertexArray(VAO);
         glBindBuffer(GL_ARRAY_BUFFER, VBO);

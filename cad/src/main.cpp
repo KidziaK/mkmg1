@@ -13,6 +13,8 @@
 #include "debugging.h"
 #include <myglm.h>
 #include <unordered_set>
+#include <map>
+#include <random>
 
 using namespace myglm;
 
@@ -24,6 +26,7 @@ int width = 1920, height = 1080;
 double lastX = width / 2.0;
 double lastY = height / 2.0;
 bool leftMousePressed = false;
+bool rightMousePressed = false;
 bool middleMousePressed = false;
 
 // camera
@@ -50,6 +53,11 @@ auto view = mat4(1.0f);
 // ImGui Variables
 bool showOptionsMenu = true;
 bool showTransformMenu = false;
+
+// Box selection
+bool isSelecting = false;
+ImVec2 selectionStart;
+ImVec2 selectionEnd;
 
 // FPS counter
 std::chrono::time_point<std::chrono::high_resolution_clock> lastTime;
@@ -85,7 +93,7 @@ void processInput() {
         glfwSetWindowShouldClose(window, true);
     }
 
-    if (leftMousePressed && !ImGui::GetIO().WantCaptureMouse) {
+    if (rightMousePressed && !ImGui::GetIO().WantCaptureMouse) {
         double xpos, ypos;
         glfwGetCursorPos(window, &xpos, &ypos);
 
@@ -135,12 +143,55 @@ void processInput() {
 }
 
 void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
+    if (button == GLFW_MOUSE_BUTTON_RIGHT) {
+        rightMousePressed = action == GLFW_PRESS;
+        if (rightMousePressed) {
+            glfwGetCursorPos(window, &lastX, &lastY);
+            if (!ImGui::GetIO().WantCaptureMouse) {
+                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+            }
+        } else {
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+        }
+    }
     if (button == GLFW_MOUSE_BUTTON_LEFT) {
         leftMousePressed = action == GLFW_PRESS;
         if (leftMousePressed) {
             glfwGetCursorPos(window, &lastX, &lastY);
             if (!ImGui::GetIO().WantCaptureMouse) {
                 glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+
+                int pixelX = static_cast<int>(lastX);
+                int pixelY = static_cast<int>(height - lastY);
+
+
+
+                Object* selectedObject = nullptr;
+                static constexpr int radius = 4;
+
+
+                for (int dx = -radius; dx < radius; dx++) {
+                    bool object_found = false;
+                    for (int dy = -radius; dy < radius; dy++) {
+                        GLuint pickedObjectID;
+
+                        glReadPixels(pixelX + dx, pixelY + dy, 1, 1, GL_STENCIL_INDEX, GL_UNSIGNED_INT, &pickedObjectID);
+                        if (pickedObjectID > 0) {
+                            selectedObject = objects[pickedObjectID - 1];
+                            object_found = true;
+                            break;
+                        }
+                    }
+                    if (object_found) {
+                        break;
+                    }
+                }
+
+
+                selected_objects.clear();
+                if (selectedObject) {
+                    selected_objects.insert(selectedObject);
+                }
             }
         } else {
             glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
@@ -361,6 +412,9 @@ void initializeGridBuffers() {
 }
 
 void render_grid() {
+    glStencilFunc(GL_ALWAYS, 0, 0xFF);
+    glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+
     glUseProgram(grid_shader_program);
 
     glUniformMatrix4fv(glGetUniformLocation(grid_shader_program, "projection"), 1, GL_FALSE, value_ptr(projection));
@@ -428,7 +482,7 @@ int main() {
     while (!glfwWindowShouldClose(window)) {
         processInput();
         glClearColor(0.2f, 0.2f, 0.3f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
@@ -449,12 +503,13 @@ int main() {
 
         render_grid();
 
-        for (auto& object : objects) {
-            vec3 color = vec3(0.8f, 0.6f, 0.2f);
-            if (selected_objects.contains(object)) {
-                color = vec3(1.0f, 0.8f, 0.3f);
-            }
-            object->draw(projection, view, color);
+        for (int i = 0; i < objects.size(); i++) {
+            auto& object = objects[i];
+
+            glStencilFunc(GL_ALWAYS, i + 1, 0xFF);
+            glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+
+            object->draw(projection, view, selected_objects.contains(object));
         }
 
         render_gui();
