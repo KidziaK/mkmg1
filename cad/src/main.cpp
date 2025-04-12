@@ -31,6 +31,7 @@ bool middleMousePressed = false;
 bool leftMouseDown = false;
 double boxStartX = 0;
 double boxStartY = 0;
+bool shiftDown = false;
 
 // camera
 vec3 target_position = vec3(0.0f, 0.0f, 0.0f);
@@ -68,6 +69,7 @@ static constexpr auto gridVertices = generateGridVertices(gridSize);
 // dynamic objects
 std::vector<Object*> objects = {};
 std::unordered_set<Object*> selected_objects;
+Cursor* center_point;
 
 // transform window
 float transform_window_trans[3] = {0, 0, 0};
@@ -89,6 +91,10 @@ void framebuffer_size_callback(GLFWwindow* window_, int width_, int height_) {
 void processInput() {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
         glfwSetWindowShouldClose(window, true);
+    } else if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) {
+        shiftDown = true;
+    } else if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_RELEASE) {
+        shiftDown = false;
     }
 
     if (rightMousePressed && !ImGui::GetIO().WantCaptureMouse) {
@@ -157,42 +163,6 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
         glfwGetCursorPos(window, &lastX, &lastY);
         boxStartX = lastX;
         boxStartY = lastY;
-        // if (!ImGui::GetIO().WantCaptureMouse) {
-        //     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-        //
-        //     boxStartX = lastX;
-        //     boxStartY = lastY;
-        //
-        //     int pixelX = static_cast<int>(lastX);
-        //     int pixelY = static_cast<int>(height - lastY);
-        //
-        //     Object* selectedObject = nullptr;
-        //     static constexpr int radius = 4;
-        //
-        //
-        //     for (int dx = -radius; dx < radius; dx++) {
-        //         bool object_found = false;
-        //         for (int dy = -radius; dy < radius; dy++) {
-        //             GLuint pickedObjectID;
-        //
-        //             glReadPixels(pixelX + dx, pixelY + dy, 1, 1, GL_STENCIL_INDEX, GL_UNSIGNED_INT, &pickedObjectID);
-        //             if (pickedObjectID > 0) {
-        //                 selectedObject = objects[pickedObjectID - 1];
-        //                 object_found = true;
-        //                 break;
-        //             }
-        //         }
-        //         if (object_found) {
-        //             break;
-        //         }
-        //     }
-        //
-        //
-        //     selected_objects.clear();
-        //     if (selectedObject) {
-        //         selected_objects.insert(selectedObject);
-        //     }
-        // }
     }
     else if (button == GLFW_MOUSE_BUTTON_MIDDLE && action == GLFW_PRESS) {
         middleMousePressed = true;
@@ -207,7 +177,10 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
         if (!ImGui::GetIO().WantCaptureMouse) {
             glfwGetCursorPos(window, &lastX, &lastY);
 
-            selected_objects.clear();
+            if (!shiftDown) {
+                selected_objects.clear();
+            }
+
 
             int xMin = std::min(boxStartX, lastX);
             int xMax = std::max(boxStartX, lastX);
@@ -507,6 +480,8 @@ int main() {
 
     objects.emplace_back(new Torus(1.0f, 0.1f, 25, 25, torus_shader));
 
+    center_point = new Cursor(cursor_shader);
+
     glEnable(GL_PROGRAM_POINT_SIZE);
 
     while (!glfwWindowShouldClose(window)) {
@@ -540,6 +515,20 @@ int main() {
             glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
 
             object->draw(projection, view, selected_objects.contains(object));
+        }
+
+
+
+        if (selected_objects.size() > 0) {
+            center_point->transform = Transform::identity();
+            center_point->transform.s = vec3(0.5f, 0.5f, 0.5f);
+
+            for (auto& object : selected_objects) {
+                center_point->transform.translation += object->transform.translation;
+            }
+
+            center_point->transform.translation /= static_cast<float>(selected_objects.size());
+            center_point->draw(projection, view, false);
         }
 
         render_gui();

@@ -217,9 +217,9 @@ struct Point : Object {
     unsigned int samples;
     float radius;
 
-    Point(const unsigned int shader, const std::string& name = "point") {
+    Point(const unsigned int shader, const float radius = 0.01f, const std::string& name = "point") {
         this->samples = 20;
-        this->radius = 0.01f;
+        this->radius = radius;
         this->transform = Transform::identity();
         this->name = name;
         auto vertices = calc_vertices();
