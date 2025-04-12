@@ -59,14 +59,14 @@ struct Object {
     unsigned int num_edges;
     unsigned int uid;
 
-    virtual void draw(const mat4& projection, const mat4& view, bool selected) {
+    virtual void draw(const mat4& projection, const mat4& view, bool selected, const mat4& global_transform) {
         mat4 model = transform.to_mat4();
 
         glUseProgram(shader);
 
         glUniformMatrix4fv(glGetUniformLocation(shader, "projection"), 1, GL_FALSE, value_ptr(projection));
         glUniformMatrix4fv(glGetUniformLocation(shader, "view"), 1, GL_FALSE, value_ptr(view));
-        glUniformMatrix4fv(glGetUniformLocation(shader, "model"), 1, GL_FALSE, value_ptr(model));
+        glUniformMatrix4fv(glGetUniformLocation(shader, "model"), 1, GL_FALSE, value_ptr(model * global_transform));
         glUniform1i(glGetUniformLocation(shader, "u_selected"), selected);
 
         glBindVertexArray(VAO);
@@ -75,6 +75,10 @@ struct Object {
 
         glDrawElements(GL_LINES, num_edges * 2, GL_UNSIGNED_SHORT, 0);
         glBindVertexArray(0);
+    }
+
+    virtual void update() {
+
     }
 
     virtual ~Object() {
@@ -337,7 +341,7 @@ struct PolyLine : Object {
         return edges;
     }
 
-    void draw(const mat4& projection, const mat4& view, bool selected) override {
+    void update() override {
         auto vertices = calc_vertices();
         auto edges = calc_edges();
         this->num_edges = edges.size();
@@ -350,21 +354,6 @@ struct PolyLine : Object {
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, edges.size() * sizeof(Edge), edges.data(), GL_STATIC_DRAW);
 
-        mat4 model = Transform::identity().to_mat4();
-
-        glUseProgram(shader);
-
-        glUniformMatrix4fv(glGetUniformLocation(shader, "projection"), 1, GL_FALSE, value_ptr(projection));
-        glUniformMatrix4fv(glGetUniformLocation(shader, "view"), 1, GL_FALSE, value_ptr(view));
-        glUniformMatrix4fv(glGetUniformLocation(shader, "model"), 1, GL_FALSE, value_ptr(model));
-        glUniform1i(glGetUniformLocation(shader, "u_selected"), selected);
-
-        glBindVertexArray(VAO);
-        glBindBuffer(GL_ARRAY_BUFFER, VBO);
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-
-        glDrawElements(GL_LINES, num_edges * 2, GL_UNSIGNED_SHORT, 0);
-        glBindVertexArray(0);
+        transform = Transform::identity();
     }
-
 };

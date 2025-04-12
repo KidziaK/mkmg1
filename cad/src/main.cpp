@@ -57,6 +57,8 @@ auto view = mat4(1.0f);
 // ImGui Variables
 bool showOptionsMenu = true;
 bool showTransformMenu = false;
+bool showTransformCursorMenu = false;
+bool showTransformMeanMenu = false;
 
 // FPS counter
 std::chrono::time_point<std::chrono::high_resolution_clock> lastTime;
@@ -75,6 +77,8 @@ Cursor* center_point;
 float transform_window_trans[3] = {0, 0, 0};
 float transform_window_rot[3] = {0, 0, 0};
 float transform_window_scale[3] = {1, 1, 1};
+Transform cursor_relative_transform = Transform::identity();
+float cursor_relative_transform_window_rot[3] = {0, 0, 0};
 
 // torus
 float big_radius_menu;
@@ -269,7 +273,7 @@ void render_options_menu() {
 }
 
 void render_single_object_transform_menu() {
-    ImGui::Begin("Transform", &showTransformMenu);
+    ImGui::Begin("Local Transform", &showTransformMenu);
     auto& selected_obj = *selected_objects.begin();
 
     transform_window_trans[0] = selected_obj->transform.translation.x;
@@ -308,6 +312,34 @@ void render_single_object_transform_menu() {
         selected_obj->transform.s.x = transform_window_scale[0];
         selected_obj->transform.s.y = transform_window_scale[1];
         selected_obj->transform.s.z = transform_window_scale[2];
+    }
+    ImGui::End();
+}
+
+void render_transform_around_cursor_menu() {
+    ImGui::Begin("Transform with respect to cursor", &showTransformCursorMenu);
+
+    vec3 euler_angles = eulerAngles(cursor_relative_transform.q);
+
+    cursor_relative_transform_window_rot[0] = degrees(euler_angles.x);
+    cursor_relative_transform_window_rot[1] = degrees(euler_angles.y);
+    cursor_relative_transform_window_rot[2] = degrees(euler_angles.z);
+
+    if (ImGui::SliderFloat3("rotation", cursor_relative_transform_window_rot, -89.99, 89.99) ) {
+        float rad_x = radians(cursor_relative_transform_window_rot[0]);
+        float rad_y = radians(cursor_relative_transform_window_rot[1]);
+        float rad_z = radians(cursor_relative_transform_window_rot[2]);
+
+        quat quat_x = angleAxis(rad_x, vec3(1, 0, 0));
+        quat quat_y = angleAxis(rad_y, vec3(0, 1, 0));
+        quat quat_z = angleAxis(rad_z, vec3(0, 0, 1));
+
+        quat final_rotation = quat_z * quat_y * quat_x;
+
+        cursor_relative_transform.q = final_rotation;
+    }
+    if (ImGui::SliderFloat3("scale", value_ptr(cursor_relative_transform.s), 0.1f, 5.0f) ) {
+
     }
     ImGui::End();
 }
@@ -399,6 +431,12 @@ bool is_torus_selected() {
 void render_gui() {
     if (selected_objects.size() == 1) {
         render_single_object_transform_menu();
+    }
+
+    if (!selected_objects.empty()) {
+        render_transform_around_cursor_menu();
+    } else {
+        cursor_relative_transform = Transform::identity();
     }
 
     if (is_torus_selected()) {
@@ -526,8 +564,9 @@ int main() {
 
             glStencilFunc(GL_ALWAYS, i + 1, 0xFF);
             glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+            object->update();
 
-            object->draw(projection, view, selected_objects.contains(object));
+            object->draw(projection, view, selected_objects.contains(object), cursor_relative_transform.to_mat4());
         }
 
         if (selected_objects.size() > 0) {
@@ -546,7 +585,7 @@ int main() {
 
             if (counter > 0) {
                 center_point->transform.translation /= counter;
-                center_point->draw(projection, view, false);
+                center_point->draw(projection, view, false, cursor_relative_transform.to_mat4());
             }
         }
 
