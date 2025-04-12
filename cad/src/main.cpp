@@ -28,6 +28,9 @@ double lastY = height / 2.0;
 bool leftMousePressed = false;
 bool rightMousePressed = false;
 bool middleMousePressed = false;
+bool leftMouseDown = false;
+double boxStartX = 0;
+double boxStartY = 0;
 
 // camera
 vec3 target_position = vec3(0.0f, 0.0f, 0.0f);
@@ -53,11 +56,6 @@ auto view = mat4(1.0f);
 // ImGui Variables
 bool showOptionsMenu = true;
 bool showTransformMenu = false;
-
-// Box selection
-bool isSelecting = false;
-ImVec2 selectionStart;
-ImVec2 selectionEnd;
 
 // FPS counter
 std::chrono::time_point<std::chrono::high_resolution_clock> lastTime;
@@ -143,72 +141,104 @@ void processInput() {
 }
 
 void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
-    if (button == GLFW_MOUSE_BUTTON_RIGHT) {
-        rightMousePressed = action == GLFW_PRESS;
-        if (rightMousePressed) {
-            glfwGetCursorPos(window, &lastX, &lastY);
-            if (!ImGui::GetIO().WantCaptureMouse) {
-                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-            }
-        } else {
-            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+    if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) {
+        rightMousePressed = true;
+
+        glfwGetCursorPos(window, &lastX, &lastY);
+        if (!ImGui::GetIO().WantCaptureMouse) {
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
         }
+
     }
-    if (button == GLFW_MOUSE_BUTTON_LEFT) {
-        leftMousePressed = action == GLFW_PRESS;
-        if (leftMousePressed) {
+    else if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+        leftMousePressed = true;
+        leftMouseDown = true;
+
+        glfwGetCursorPos(window, &lastX, &lastY);
+        boxStartX = lastX;
+        boxStartY = lastY;
+        // if (!ImGui::GetIO().WantCaptureMouse) {
+        //     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+        //
+        //     boxStartX = lastX;
+        //     boxStartY = lastY;
+        //
+        //     int pixelX = static_cast<int>(lastX);
+        //     int pixelY = static_cast<int>(height - lastY);
+        //
+        //     Object* selectedObject = nullptr;
+        //     static constexpr int radius = 4;
+        //
+        //
+        //     for (int dx = -radius; dx < radius; dx++) {
+        //         bool object_found = false;
+        //         for (int dy = -radius; dy < radius; dy++) {
+        //             GLuint pickedObjectID;
+        //
+        //             glReadPixels(pixelX + dx, pixelY + dy, 1, 1, GL_STENCIL_INDEX, GL_UNSIGNED_INT, &pickedObjectID);
+        //             if (pickedObjectID > 0) {
+        //                 selectedObject = objects[pickedObjectID - 1];
+        //                 object_found = true;
+        //                 break;
+        //             }
+        //         }
+        //         if (object_found) {
+        //             break;
+        //         }
+        //     }
+        //
+        //
+        //     selected_objects.clear();
+        //     if (selectedObject) {
+        //         selected_objects.insert(selectedObject);
+        //     }
+        // }
+    }
+    else if (button == GLFW_MOUSE_BUTTON_MIDDLE && action == GLFW_PRESS) {
+        middleMousePressed = true;
+        glfwGetCursorPos(window, &lastX, &lastY);
+        if (!ImGui::GetIO().WantCaptureMouse) {
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+        }
+    } else if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE) {
+        leftMousePressed = false;
+        leftMouseDown = false;
+
+        if (!ImGui::GetIO().WantCaptureMouse) {
             glfwGetCursorPos(window, &lastX, &lastY);
-            if (!ImGui::GetIO().WantCaptureMouse) {
-                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
-                int pixelX = static_cast<int>(lastX);
-                int pixelY = static_cast<int>(height - lastY);
+            selected_objects.clear();
 
+            int xMin = std::min(boxStartX, lastX);
+            int xMax = std::max(boxStartX, lastX);
+            int yMin = std::min(boxStartY, lastY);
+            int yMax = std::max(boxStartY, lastY);
 
+            static constexpr unsigned int radius = 3;
 
-                Object* selectedObject = nullptr;
-                static constexpr int radius = 4;
+            int dx = xMax - xMin + radius;
+            int dy = yMax - yMin + radius;
 
+            size_t bufferSize = dx * dy * sizeof(GLubyte) * 2;
+            std::vector<GLubyte> pixels(bufferSize);
 
-                for (int dx = -radius; dx < radius; dx++) {
-                    bool object_found = false;
-                    for (int dy = -radius; dy < radius; dy++) {
-                        GLuint pickedObjectID;
+            glReadPixels(xMin, height - yMax, dx, dy, GL_STENCIL_INDEX, GL_UNSIGNED_BYTE, pixels.data());
 
-                        glReadPixels(pixelX + dx, pixelY + dy, 1, 1, GL_STENCIL_INDEX, GL_UNSIGNED_INT, &pickedObjectID);
-                        if (pickedObjectID > 0) {
-                            selectedObject = objects[pickedObjectID - 1];
-                            object_found = true;
-                            break;
-                        }
-                    }
-                    if (object_found) {
-                        break;
-                    }
+            for (auto pixel : pixels) {
+                size_t index = pixel;
+                if (index > 0) {
+                    selected_objects.insert(objects[index - 1]);
                 }
-
-
-                selected_objects.clear();
-                if (selectedObject) {
-                    selected_objects.insert(selectedObject);
-                }
             }
-        } else {
-            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
         }
     }
-    if (button == GLFW_MOUSE_BUTTON_MIDDLE) {
-        middleMousePressed = action == GLFW_PRESS;
-        if (middleMousePressed) {
-            glfwGetCursorPos(window, &lastX, &lastY);
-            if (!ImGui::GetIO().WantCaptureMouse) {
-                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-            }
-        } else {
-            if (!leftMousePressed)
-                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-        }
+    else {
+        leftMousePressed = false;
+        rightMousePressed = false;
+        middleMousePressed = false;
     }
+
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
 }
 
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
