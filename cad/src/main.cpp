@@ -32,6 +32,8 @@ bool leftMouseDown = false;
 double boxStartX = 0;
 double boxStartY = 0;
 bool shiftDown = false;
+bool qKeyPressed = false;
+bool cKeyPressed = false;
 
 // camera
 vec3 target_position = vec3(0.0f, 0.0f, 0.0f);
@@ -86,10 +88,26 @@ float small_radius_menu;
 int theta_samples_menu;
 int phi_samples_menu;
 
+// other
+mat4 cursor_relative_mat4 = mat4(1.0f);
+
 void framebuffer_size_callback(GLFWwindow* window_, int width_, int height_) {
     width = width_;
     height = height_;
     glViewport(0, 0, width_, height_);
+}
+
+void add_point() {
+    auto ppoint = new Point(point_shader);
+    objects.push_back(ppoint);
+    for (auto& object : objects) {
+        if (object->uid == 4) {
+            C0Bezier* bezier = dynamic_cast<C0Bezier*>(object);
+            bezier->control_points.push_back(ppoint);
+            bezier->control_polygon->points.push_back(ppoint);
+        }
+    }
+    ppoint->transform = objects[0]->transform;
 }
 
 void processInput() {
@@ -99,6 +117,25 @@ void processInput() {
         shiftDown = true;
     } else if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_RELEASE) {
         shiftDown = false;
+    }
+
+    if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS && !qKeyPressed) {
+        add_point();
+        qKeyPressed = true;
+    } else if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_RELEASE) {
+        qKeyPressed = false;
+    }
+
+    if (glfwGetKey(window, GLFW_KEY_C) == GLFW_PRESS && !cKeyPressed) {
+        for (auto& object : objects) {
+            if (object->uid == 4) {
+                C0Bezier* bezier = dynamic_cast<C0Bezier*>(object);
+                bezier->show_control_polygon = !bezier->show_control_polygon;
+            }
+        }
+        cKeyPressed = true;
+    } else if (glfwGetKey(window, GLFW_KEY_C) == GLFW_RELEASE) {
+        cKeyPressed = false;
     }
 
     if (rightMousePressed && !ImGui::GetIO().WantCaptureMouse) {
@@ -251,9 +288,7 @@ void render_options_menu() {
     }
 
     if (ImGui::Button("Point")) {
-        auto ppoint = new Point(point_shader);
-        objects.push_back(ppoint);
-        ppoint->transform = objects[0]->transform;
+        add_point();
     }
 
     if (ImGui::Button("Polyline")) {
@@ -267,6 +302,18 @@ void render_options_menu() {
             auto ppolyline = new PolyLine(point_shader, points);
             objects.push_back(ppolyline);
         }
+    }
+
+    if (ImGui::Button("C0 Bezier")) {
+        std::vector<Point*> points;
+        for (auto& object : selected_objects) {
+            if (object->uid == 2) {
+                points.push_back(dynamic_cast<Point*>(object));
+            }
+        }
+
+        auto pc0bezier = new C0Bezier(point_shader, points);
+        objects.push_back(pc0bezier);
     }
 
     ImGui::End();
@@ -284,7 +331,7 @@ void render_single_object_transform_menu() {
     transform_window_scale[1] = selected_obj->transform.s.y;
     transform_window_scale[2] = selected_obj->transform.s.z;
 
-    vec3 euler_angles = eulerAngles(selected_obj->transform.q);
+    vec3 euler_angles = selected_obj->transform.rotation;
 
     transform_window_rot[0] = degrees(euler_angles.x);
     transform_window_rot[1] = degrees(euler_angles.y);
@@ -295,18 +342,11 @@ void render_single_object_transform_menu() {
         selected_obj->transform.translation.y = transform_window_trans[1];
         selected_obj->transform.translation.z = transform_window_trans[2];
     }
-    if (ImGui::SliderFloat3("rotation", transform_window_rot, -89.99, 89.99) ) {
+    if (ImGui::SliderFloat3("rotation", transform_window_rot, -360.0f, 360.0f) ) {
         float rad_x = radians(transform_window_rot[0]);
         float rad_y = radians(transform_window_rot[1]);
         float rad_z = radians(transform_window_rot[2]);
-
-        quat quat_x = angleAxis(rad_x, vec3(1, 0, 0));
-        quat quat_y = angleAxis(rad_y, vec3(0, 1, 0));
-        quat quat_z = angleAxis(rad_z, vec3(0, 0, 1));
-
-        quat final_rotation = quat_z * quat_y * quat_x;
-
-        selected_obj->transform.q = final_rotation;
+        selected_obj->transform.rotation = {rad_x, rad_y, rad_z};
     }
     if (ImGui::SliderFloat3("scale", transform_window_scale, 0.1f, 5.0f) ) {
         selected_obj->transform.s.x = transform_window_scale[0];
@@ -319,28 +359,24 @@ void render_single_object_transform_menu() {
 void render_transform_around_cursor_menu() {
     ImGui::Begin("Transform with respect to cursor", &showTransformCursorMenu);
 
-    vec3 euler_angles = eulerAngles(cursor_relative_transform.q);
-
-    cursor_relative_transform_window_rot[0] = degrees(euler_angles.x);
-    cursor_relative_transform_window_rot[1] = degrees(euler_angles.y);
-    cursor_relative_transform_window_rot[2] = degrees(euler_angles.z);
-
-    if (ImGui::SliderFloat3("rotation", cursor_relative_transform_window_rot, -89.99, 89.99) ) {
-        float rad_x = radians(cursor_relative_transform_window_rot[0]);
-        float rad_y = radians(cursor_relative_transform_window_rot[1]);
-        float rad_z = radians(cursor_relative_transform_window_rot[2]);
-
-        quat quat_x = angleAxis(rad_x, vec3(1, 0, 0));
-        quat quat_y = angleAxis(rad_y, vec3(0, 1, 0));
-        quat quat_z = angleAxis(rad_z, vec3(0, 0, 1));
-
-        quat final_rotation = quat_z * quat_y * quat_x;
-
-        cursor_relative_transform.q = final_rotation;
-    }
-    if (ImGui::SliderFloat3("scale", value_ptr(cursor_relative_transform.s), 0.1f, 5.0f) ) {
+    if (ImGui::SliderFloat3("rotation", value_ptr(cursor_relative_transform.rotation), -360.0f, 360.0f) ) {
 
     }
+    if (ImGui::SliderFloat("scale", &cursor_relative_transform.s.x, 0.1f, 5.0f) ) {
+        cursor_relative_transform.s.y = cursor_relative_transform.s.x;
+        cursor_relative_transform.s.z = cursor_relative_transform.s.x;
+    }
+
+    if (ImGui::Button("apply")) {
+        for (auto& object : objects) {
+            if (object->uid > 0 && selected_objects.contains(object)) {
+                object->transform = Transform::from_mat4(object->transform.to_mat4() * cursor_relative_mat4);
+            }
+        }
+
+        cursor_relative_transform = Transform::identity();
+    }
+
     ImGui::End();
 }
 
@@ -354,18 +390,52 @@ void render_objects_list_window() {
 
         ImGui::PushID(i); // Unique ID for each item
 
+        bool style_selected = selected_objects.contains(obj);
+
+        if (style_selected) {
+            ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(1.0f, 1.0f, 0.8f, 0.2f));
+        }
+
         if (ImGui::InputText("", buffer, IM_ARRAYSIZE(buffer))) {
             obj->name = buffer;
         }
 
+        if (style_selected) {
+            ImGui::PopStyleColor();
+        }
+
         if (ImGui::IsItemClicked()) {
-            selected_objects.clear();
+            if (!shiftDown) {
+                selected_objects.clear();
+            }
+
             selected_objects.insert(objects[i]);
         }
 
         if (item_name != "cursor") {
             ImGui::SameLine();
             if (ImGui::Button("X")) {
+
+                if (obj->uid == 2) {
+                    for (auto& object : objects) {
+                        if (object->uid == 4) {
+                            C0Bezier* bezier = dynamic_cast<C0Bezier*>(object);
+                            int idx = -1;
+                            for (int i = 0; i < bezier->control_points.size(); i++) {
+                                auto point = bezier->control_points[i];
+                                if (point == obj) {
+                                    idx = i;
+                                    break;
+                                }
+                            }
+                            if (idx >= 0) {
+                                bezier->control_points.erase(bezier->control_points.begin() + idx);
+                                bezier->control_polygon->points.erase(bezier->control_polygon->points.begin() + idx);
+                            }
+                        }
+                    }
+                }
+
                 delete obj;
                 objects.erase(objects.begin() + i);
                 selected_objects.clear();
@@ -529,8 +599,6 @@ int main() {
 
     objects.emplace_back(new Cursor(cursor_shader));
 
-    objects.emplace_back(new Torus(1.0f, 0.1f, 25, 25, torus_shader));
-
     center_point = new Cursor(cursor_shader);
 
     glEnable(GL_PROGRAM_POINT_SIZE);
@@ -559,33 +627,36 @@ int main() {
 
         render_grid();
 
+        vec3 cursor_translation = objects[0]->transform.translation;
+        cursor_relative_mat4 = trans_mat(-cursor_translation) * cursor_relative_transform.to_mat4() * trans_mat(cursor_translation);
+
         for (int i = 0; i < objects.size(); i++) {
             auto& object = objects[i];
 
             glStencilFunc(GL_ALWAYS, i + 1, 0xFF);
             glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
-            object->update();
 
-            object->draw(projection, view, selected_objects.contains(object), cursor_relative_transform.to_mat4());
+            object->update(cursor_relative_mat4, selected_objects, projection, view, width, height);
+            mat4 global_transform = selected_objects.contains(object) ? cursor_relative_mat4 : mat4(1.0f);
+            object->draw(projection, view, selected_objects.contains(object), global_transform);
         }
 
-        if (selected_objects.size() > 0) {
+        if (!selected_objects.empty()) {
             center_point->transform = Transform::identity();
             center_point->transform.s = vec3(0.5f, 0.5f, 0.5f);
 
             float counter = 0.0f;
 
             for (auto& object : selected_objects) {
-                if (object->uid != 3) {
+                if (object->uid < 3) {
                     center_point->transform.translation += object->transform.translation;
                     counter++;
                 }
-
             }
 
             if (counter > 0) {
                 center_point->transform.translation /= counter;
-                center_point->draw(projection, view, false, cursor_relative_transform.to_mat4());
+                center_point->draw(projection, view, false, cursor_relative_mat4);
             }
         }
 

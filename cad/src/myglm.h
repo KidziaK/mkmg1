@@ -169,6 +169,21 @@ namespace myglm {
                 w * q.z + x * q.y - y * q.x + z * q.w
             );
         }
+
+        float norm() const {
+            return std::sqrt(w * w + x * x + y * y + z * z);
+        }
+
+        void normalize() {
+            float n = norm();
+            if (n > 0.0f) {
+                float inv_n = 1.0f / n;
+                w *= inv_n;
+                x *= inv_n;
+                y *= inv_n;
+                z *= inv_n;
+            }
+        }
     };
 
     mat4 translate(const mat4& m, const vec3& v) {
@@ -398,7 +413,7 @@ namespace myglm {
     }
 
     mat4 rot_mat(const quat& q) {
-        mat4 mat;
+        mat4 mat(1.0f);
 
         float xx = q.x * q.x;
         float xy = q.x * q.y;
@@ -410,27 +425,19 @@ namespace myglm {
         float zz = q.z * q.z;
         float zw = q.z * q.w;
 
-        mat[0][0] = 1 - 2 * (yy + zz);
-        mat[0][1] = 2 * (xy - zw);
-        mat[0][2] = 2 * (xz + yw);
-        mat[0][3] = 0;
+        mat[0][0] = 1.0f - 2.0f * (yy + zz);
+        mat[0][1] = 2.0f * (xy - zw);
+        mat[0][2] = 2.0f * (xz + yw);
 
-        mat[1][0] = 2 * (xy + zw);
-        mat[1][1] = 1 - 2 * (xx + zz);
-        mat[1][2] = 2 * (yz - xw);
-        mat[1][3] = 0;
+        mat[1][0] = 2.0f * (xy + zw);
+        mat[1][1] = 1.0f - 2.0f * (xx + zz);
+        mat[1][2] = 2.0f * (yz - xw);
 
-        mat[2][0] = 2 * (xz - yw);
-        mat[2][1] = 2 * (yz + xw);
-        mat[2][2] = 1 - 2 * (xx + yy);
-        mat[2][3] = 0;
+        mat[2][0] = 2.0f * (xz - yw);
+        mat[2][1] = 2.0f * (yz + xw);
+        mat[2][2] = 1.0f - 2.0f * (xx + yy);
 
-        mat[3][0] = 0;
-        mat[3][1] = 0;
-        mat[3][2] = 0;
-        mat[3][3] = 1;
-
-        return transpose(mat);
+        return mat;
     }
 
     mat4 trans_mat(const vec3& translation_vector) {
@@ -468,6 +475,7 @@ namespace myglm {
         constexpr vec4() : x(0.0f), y(0.0f), z(0.0f), w(0.0f) {}
         constexpr vec4(float x_, float y_, float z_, float w_) : x(x_), y(y_), z(z_), w(w_) {}
         constexpr vec4(const float* arr) : x(arr[0]), y(arr[1]), z(arr[2]), w(arr[3]) {}
+        constexpr vec4(vec3 v, float s) : x(v.x), y(v.y), z(v.z), w(s) {}
 
         vec4 operator+(const vec4& other) const {
             return vec4(x + other.x, y + other.y, z + other.z, w + other.w);
@@ -568,4 +576,162 @@ namespace myglm {
     constexpr vec4 make_vec4(const vec3& v, float w) {
         return vec4(v.x, v.y, v.z, w);
     }
+
+    quat from_euler_angles(const vec3& euler_angles) {
+        quat quat_x = angleAxis(euler_angles.x, vec3(1, 0, 0));
+        quat quat_y = angleAxis(euler_angles.y, vec3(0, 1, 0));
+        quat quat_z = angleAxis(euler_angles.z, vec3(0, 0, 1));
+
+        return quat_z * quat_y * quat_x;
+    }
+
+    struct mat3 {
+        float elements[3][3];
+
+        mat3() {
+            for (int i = 0; i < 3; ++i) {
+                for (int j = 0; j < 3; ++j) {
+                    elements[i][j] = (i == j) ? 1.0f : 0.0f;
+                }
+            }
+        }
+
+        mat3(float diagonal) {
+            for (int i = 0; i < 3; ++i) {
+                for (int j = 0; j < 3; ++j) {
+                    elements[i][j] = (i == j) ? diagonal : 0.0f;
+                }
+            }
+        }
+
+        mat3(
+            float m00, float m01, float m02,
+            float m10, float m11, float m12,
+            float m20, float m21, float m22
+        ) {
+            elements[0][0] = m00; elements[0][1] = m01; elements[0][2] = m02;
+            elements[1][0] = m10; elements[1][1] = m11; elements[1][2] = m12;
+            elements[2][0] = m20; elements[2][1] = m21; elements[2][2] = m22;
+        }
+
+        mat3(const mat4& m) {
+            for (int i = 0; i < 3; ++i) {
+                for (int j = 0; j < 3; ++j) {
+                    elements[i][j] = m.elements[i][j];
+                }
+            }
+        }
+
+        mat3 operator*(const mat3& other) const {
+            mat3 result(0.0f);
+            for (int i = 0; i < 3; ++i) {
+                for (int j = 0; j < 3; ++j) {
+                    result.elements[i][j] = 0.0f;
+                    for (int k = 0; k < 3; ++k) {
+                        result.elements[i][j] += elements[i][k] * other.elements[k][j];
+                    }
+                }
+            }
+            return result;
+        }
+
+        vec3 operator*(const vec3& v) const {
+            vec3 result;
+            result.x = elements[0][0] * v.x + elements[1][0] * v.y + elements[2][0] * v.z;
+            result.y = elements[0][1] * v.x + elements[1][1] * v.y + elements[2][1] * v.z;
+            result.z = elements[0][2] * v.x + elements[1][2] * v.y + elements[2][2] * v.z;
+            return result;
+        }
+
+        float* operator[](int index) {
+            return elements[index];
+        }
+
+        const float* operator[](int index) const {
+            return elements[index];
+        }
+    };
+
+    mat3 transpose(const mat3& m) {
+        mat3 result;
+        for (int i = 0; i < 3; ++i) {
+            for (int j = 0; j < 3; ++j) {
+                result.elements[i][j] = m.elements[j][i];
+            }
+        }
+        return result;
+    }
+
+    float determinant(const mat3& m) {
+        return m.elements[0][0] * (m.elements[1][1] * m.elements[2][2] - m.elements[1][2] * m.elements[2][1]) -
+               m.elements[0][1] * (m.elements[1][0] * m.elements[2][2] - m.elements[1][2] * m.elements[2][0]) +
+               m.elements[0][2] * (m.elements[1][0] * m.elements[2][1] - m.elements[1][1] * m.elements[2][0]);
+    }
+
+    mat3 inverse(const mat3& m) {
+        float det = determinant(m);
+        if (std::abs(det) < 1e-6f) {
+            // Matrix is singular or nearly singular
+            return mat3();
+        }
+
+        float invDet = 1.0f / det;
+
+        mat3 result;
+        result.elements[0][0] = (m.elements[1][1] * m.elements[2][2] - m.elements[1][2] * m.elements[2][1]) * invDet;
+        result.elements[0][1] = (m.elements[0][2] * m.elements[2][1] - m.elements[0][1] * m.elements[2][2]) * invDet;
+        result.elements[0][2] = (m.elements[0][1] * m.elements[1][2] - m.elements[0][2] * m.elements[1][1]) * invDet;
+
+        result.elements[1][0] = (m.elements[1][2] * m.elements[2][0] - m.elements[1][0] * m.elements[2][2]) * invDet;
+        result.elements[1][1] = (m.elements[0][0] * m.elements[2][2] - m.elements[0][2] * m.elements[2][0]) * invDet;
+        result.elements[1][2] = (m.elements[0][2] * m.elements[1][0] - m.elements[0][0] * m.elements[1][2]) * invDet;
+
+        result.elements[2][0] = (m.elements[1][0] * m.elements[2][1] - m.elements[1][1] * m.elements[2][0]) * invDet;
+        result.elements[2][1] = (m.elements[0][1] * m.elements[2][0] - m.elements[0][0] * m.elements[2][1]) * invDet;
+        result.elements[2][2] = (m.elements[0][0] * m.elements[1][1] - m.elements[0][1] * m.elements[1][0]) * invDet;
+
+        return result;
+    }
+
+    void print_mat3(const mat3& mat) {
+        std::cout << "3x3 Matrix:" << std::endl;
+        for (int i = 0; i < 3; ++i) {
+            for (int j = 0; j < 3; ++j) {
+                std::cout << mat.elements[i][j] << " ";
+            }
+            std::cout << std::endl;
+        }
+    }
+
+    mat4 mat4_cast(const mat3& m) {
+        mat4 result(1.0f);
+        for (int i = 0; i < 3; ++i) {
+            for (int j = 0; j < 3; ++j) {
+                result.elements[i][j] = m.elements[i][j];
+            }
+        }
+        return result;
+    }
+
+    float* value_ptr(mat3& m) {
+        return &m.elements[0][0];
+    }
+
+    float* value_ptr(const mat3& m) {
+        return (float*)&m.elements[0][0];
+    }
+
+    vec3 bezierPoint(float t, const vec3& p0, const vec3& p1, const vec3& p2, const vec3& p3) {
+        float t2 = t * t;
+        float t3 = t * t2;
+        float mt = 1.0f - t;
+        float mt2 = mt * mt;
+        float mt3 = mt * mt2;
+
+        return (p0 * mt3) +
+               (p1 * 3.0f * t * mt2) +
+               (p2 * 3.0f * t2 * mt) +
+               (p3 * t3);
+    }
+
 }

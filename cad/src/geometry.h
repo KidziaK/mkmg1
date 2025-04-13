@@ -2,6 +2,7 @@
 
 #include <myglm.h>
 #include <array>
+#include <unordered_set>
 #include <vector>
 
 using namespace myglm;
@@ -29,31 +30,65 @@ static constexpr std::array<Vertex, gridVertexCount> generateGridVertices(int gr
 
 
 struct Transform {
-    quat q;
+    vec3 rotation;
     vec3 translation;
     vec3 s;
 
     static Transform identity() {
         Transform transform{};
         transform.translation = vec3(0, 0, 0);
-        transform.q = quat(1, 0, 0, 0);
+        transform.rotation = vec3(0, 0, 0);
         transform.s = vec3(1, 1, 1);
         return transform;
     }
 
     mat4 to_mat4() const {
+        quat q = from_euler_angles(rotation);
         mat4 rotation_mat = rot_mat(q);
         mat4 translation_mat = translate(mat4(1.0f), translation);
         mat4 s_mat = scale(mat4(1.0f), s);
-        return  s_mat  * rotation_mat * translation_mat;
+        return s_mat * rotation_mat * translation_mat;
+    }
+
+    static Transform from_mat4(const mat4& matrix) {
+        Transform result = identity();
+
+        result.translation.x = matrix.elements[3][0];
+        result.translation.y = matrix.elements[3][1];
+        result.translation.z = matrix.elements[3][2];
+
+        vec3 column_x(matrix.elements[0][0], matrix.elements[0][1], matrix.elements[0][2]);
+        vec3 column_y(matrix.elements[1][0], matrix.elements[1][1], matrix.elements[1][2]);
+        vec3 column_z(matrix.elements[2][0], matrix.elements[2][1], matrix.elements[2][2]);
+
+        result.s.x = column_x.length();
+        result.s.y = column_y.length();
+        result.s.z = column_z.length();
+
+        mat3 rotation_matrix = mat3(1.0f);
+        rotation_matrix.elements[0][0] = matrix.elements[0][0] / result.s.x;
+        rotation_matrix.elements[1][0] = matrix.elements[1][0] / result.s.y;
+        rotation_matrix.elements[2][0] = matrix.elements[2][0] / result.s.z;
+
+        rotation_matrix.elements[0][1] = matrix.elements[0][1] / result.s.x;
+        rotation_matrix.elements[1][1] = matrix.elements[1][1] / result.s.y;
+        rotation_matrix.elements[2][1] = matrix.elements[2][1] / result.s.z;
+
+        rotation_matrix.elements[0][2] = matrix.elements[0][2] / result.s.x;
+        rotation_matrix.elements[1][2] = matrix.elements[1][2] / result.s.y;
+        rotation_matrix.elements[2][2] = matrix.elements[2][2] / result.s.z;
+
+        quat rotation_quat(mat4_cast(rotation_matrix));
+        rotation_quat.normalize();
+        result.rotation = eulerAngles(rotation_quat);
+
+        return result;
     }
 };
 
 struct Object {
     std::string name;
     Transform transform;
-    // std::vector<Vertex> vertices;
-    // std::vector<Edge> edges;
     unsigned int VAO, VBO, EBO;
     unsigned int shader;
     unsigned int num_edges;
@@ -77,9 +112,14 @@ struct Object {
         glBindVertexArray(0);
     }
 
-    virtual void update() {
-
-    }
+    virtual void update(
+        const mat4& global_transform,
+        const std::unordered_set<Object*>& selected_objects,
+        const mat4& projection,
+        const mat4& view,
+        unsigned int width,
+        unsigned int height
+    ) {}
 
     virtual ~Object() {
         glDeleteBuffers(1, &VBO);
@@ -300,9 +340,6 @@ struct PolyLine : Object {
         this->transform = Transform::identity();
         this->name = name;
         this->shader = shader;
-        auto vertices = calc_vertices();
-        auto edges = calc_edges();
-        this->num_edges = edges.size();
         this->uid = 3;
 
         glGenVertexArrays(1, &VAO);
@@ -312,21 +349,24 @@ struct PolyLine : Object {
         glBindVertexArray(VAO);
 
         glBindBuffer(GL_ARRAY_BUFFER, VBO);
-        glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(Vertex), vertices.data(), GL_STATIC_DRAW);
+        glBufferData(GL_ARRAY_BUFFER, 0, nullptr, GL_STATIC_DRAW);
 
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER, edges.size() * sizeof(Edge), edges.data(), GL_STATIC_DRAW);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, 0, nullptr, GL_STATIC_DRAW);
 
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)0);
         glEnableVertexAttribArray(0);
     }
 
-    [[nodiscard]] std::vector<Vertex> calc_vertices() const {
+    [[nodiscard]] std::vector<Vertex> calc_vertices(const mat4& global_transform, const std::unordered_set<Object*>& selected_objects) const {
         std::vector<Vertex> vertices;
         vertices.reserve(points.size());
 
         for (unsigned int i = 0; i < points.size(); ++i) {
-            vertices.emplace_back(points[i]->transform.translation);
+            mat4 modified_transform = selected_objects.contains(points[i]) ? global_transform : mat4(1.0f);
+            vec4 t_affine = vec4(points[i]->transform.translation, 1.0f);
+            vec3 t = vec3_from_vec4(mul(modified_transform, t_affine));
+            vertices.emplace_back(t);
         }
         return vertices;
     }
@@ -341,8 +381,15 @@ struct PolyLine : Object {
         return edges;
     }
 
-    void update() override {
-        auto vertices = calc_vertices();
+    void update(
+        const mat4& global_transform,
+        const std::unordered_set<Object*>& selected_objects,
+        const mat4& projection,
+        const mat4& view,
+        unsigned int width,
+        unsigned int height
+    ) override {
+        auto vertices = calc_vertices(global_transform, selected_objects);
         auto edges = calc_edges();
         this->num_edges = edges.size();
 
@@ -355,5 +402,150 @@ struct PolyLine : Object {
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, edges.size() * sizeof(Edge), edges.data(), GL_STATIC_DRAW);
 
         transform = Transform::identity();
+    }
+
+    void draw(const mat4& projection, const mat4& view, bool selected, const mat4& global_transform) override {
+        Object::draw(projection, view, selected, mat4(1.0f));
+    }
+};
+
+struct C0Bezier : Object {
+    std::vector<Point*> control_points;
+    PolyLine* control_polygon;
+    std::vector<vec3> curve_vertices;
+    bool show_control_polygon = true;
+
+    C0Bezier(const unsigned int shader, const std::vector<Point*>& control_points, const std::string& name = "C0 Bezier") {
+        this->control_points = control_points;
+        this->transform = Transform::identity();
+        this->name = name;
+        this->shader = shader;
+        this->uid = 4;
+
+        glGenVertexArrays(1, &VAO);
+        glGenBuffers(1, &VBO);
+        glGenBuffers(1, &EBO);
+
+        glBindVertexArray(VAO);
+
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        glBufferData(GL_ARRAY_BUFFER, 0, nullptr, GL_STATIC_DRAW);
+
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, 0, nullptr, GL_STATIC_DRAW);
+
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)0);
+        glEnableVertexAttribArray(0);
+
+        this->control_polygon = new PolyLine(shader, control_points);
+    }
+
+    [[nodiscard]] std::vector<vec3> calc_vertices(
+        const std::vector<vec3>& modified_control_points,
+        const mat4& projection,
+        const mat4& view,
+        unsigned int width,
+        unsigned int height
+    ) const {
+        std::vector<vec3> vertices;
+
+        vertices.reserve(modified_control_points.size());
+
+        for (unsigned int i = 0; i < modified_control_points.size() - 1; i+=3) {
+            vec3 p0 = modified_control_points[i];
+            vec3 p1 = modified_control_points[i + 1];
+            vec3 p2 = modified_control_points[i + 2];
+            vec3 p3 = modified_control_points[i + 3];
+
+            vec4 q0 = mul(projection * view, vec4(p0, 1.0f));
+            vec4 q1 = mul(projection * view, vec4(p1, 1.0));
+            vec4 q2 = mul(projection * view, vec4(p2, 1.0));
+            vec4 q3 = mul(projection * view, vec4(p3, 1.0));
+
+            float xMax = std::max({q0.x, q1.x, q2.x, q3.x});
+            float yMax = std::max({q0.y, q1.y, q2.y, q3.y});
+
+            float xMin = std::min({q0.x, q1.x, q2.x, q3.x});
+            float yMin = std::min({q0.y, q1.y, q2.y, q3.y});
+
+            unsigned int points_per_segment = (yMax - yMin) * (xMax - xMin) * 100;
+            points_per_segment = std::max(int(points_per_segment), 2);
+
+            for (unsigned int j = 0; j < points_per_segment; ++j) {
+                float t = static_cast<float>(j) / static_cast<float>(points_per_segment - 1);
+                vertices.emplace_back(bezierPoint(t, p0, p1, p2, p3));
+            }
+        }
+        return vertices;
+    }
+
+    [[nodiscard]] std::vector<u16vec2> calc_edges() const {
+        std::vector<u16vec2> edges;
+
+        edges.reserve(curve_vertices.size());
+
+        for (int i = 0; i < curve_vertices.size() - 1; ++i) {
+            edges.emplace_back(i, i + 1);
+        }
+
+        return edges;
+    }
+
+    void update(
+        const mat4& global_transform,
+        const std::unordered_set<Object*>& selected_objects,
+        const mat4& projection,
+        const mat4& view,
+        unsigned int width,
+        unsigned int height
+    ) override {
+        std::vector<vec3> modified_control_points;
+        modified_control_points.reserve(control_points.size() + 3);
+
+        for (unsigned int i = 0; i < control_points.size(); ++i) {
+            mat4 transform = selected_objects.contains(control_points[i]) ? global_transform : mat4(1.0f);
+            vec3 transformed_point = vec3_from_vec4(mul(transform, vec4(control_points[i]->transform.translation, 1.0f)));
+            modified_control_points.emplace_back(transformed_point);
+        }
+
+        const unsigned int n = modified_control_points.size();
+
+        unsigned int k = n <= 4 ? 4 - n : (4 - n) % 3;
+
+        for (unsigned int i = 0; i < k; ++i) {
+            modified_control_points[n + i] = modified_control_points[n - 1];
+        }
+
+        curve_vertices = calc_vertices(modified_control_points, projection, view, width, height);
+        auto edges = calc_edges();
+        this->num_edges = edges.size();
+
+        glBindVertexArray(VAO);
+
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        glBufferData(GL_ARRAY_BUFFER, curve_vertices.size() * sizeof(Vertex), curve_vertices.data(), GL_STATIC_DRAW);
+
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, edges.size() * sizeof(Edge), edges.data(), GL_STATIC_DRAW);
+
+        transform = Transform::identity();
+
+        if (show_control_polygon) {
+            control_polygon->update(global_transform, selected_objects, projection, view, width, height);
+        }
+    }
+
+    void draw(const mat4& projection, const mat4& view, bool selected, const mat4& global_transform) override {
+        Object::draw(projection, view, selected, mat4(1.0f));
+        if (show_control_polygon) {
+            glStencilFunc(GL_ALWAYS, 0, 0xFF);
+            glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+            control_polygon->draw(projection, view, selected, mat4(1.0f));
+        }
+    }
+
+    ~C0Bezier() override {
+        delete control_polygon;
+        Object::~Object();
     }
 };
