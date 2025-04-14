@@ -80,6 +80,7 @@ float transform_window_trans[3] = {0, 0, 0};
 float transform_window_rot[3] = {0, 0, 0};
 float transform_window_scale[3] = {1, 1, 1};
 Transform cursor_relative_transform = Transform::identity();
+Transform center_point_relative_transform = Transform::identity();
 float cursor_relative_transform_window_rot[3] = {0, 0, 0};
 
 // torus
@@ -90,6 +91,7 @@ int phi_samples_menu;
 
 // other
 mat4 cursor_relative_mat4 = mat4(1.0f);
+mat4 center_point_relative_mat4 = mat4(1.0f);
 
 void framebuffer_size_callback(GLFWwindow* window_, int width_, int height_) {
     width = width_;
@@ -380,6 +382,33 @@ void render_transform_around_cursor_menu() {
     ImGui::End();
 }
 
+void render_transform_around_center_menu() {
+    ImGui::Begin("Transform with respect to center point", &showTransformCursorMenu);
+
+    if (ImGui::SliderFloat3("translation", value_ptr(center_point_relative_transform.translation), -5.0f, 5.0f) ) {
+
+    }
+    if (ImGui::SliderFloat3("rotation", value_ptr(center_point_relative_transform.rotation), -360.0f, 360.0f) ) {
+
+    }
+    if (ImGui::SliderFloat("scale", &center_point_relative_transform.s.x, 0.1f, 5.0f) ) {
+        center_point_relative_transform.s.y = center_point_relative_transform.s.x;
+        center_point_relative_transform.s.z = center_point_relative_transform.s.x;
+    }
+
+    if (ImGui::Button("apply")) {
+        for (auto& object : objects) {
+            if (object->uid > 0 && selected_objects.contains(object)) {
+                object->transform = Transform::from_mat4(object->transform.to_mat4() * center_point_relative_mat4);
+            }
+        }
+
+        center_point_relative_transform = Transform::identity();
+    }
+
+    ImGui::End();
+}
+
 void render_objects_list_window() {
     ImGui::Begin("Objects", nullptr, ImGuiWindowFlags_NoCollapse);
     for (int i = 0; i < objects.size(); ++i) {
@@ -509,6 +538,12 @@ void render_gui() {
         cursor_relative_transform = Transform::identity();
     }
 
+    if (selected_objects.size() >= 2) {
+        render_transform_around_center_menu();
+    } else {
+        center_point_relative_transform = Transform::identity();
+    }
+
     if (is_torus_selected()) {
         render_torus_menu();
     }
@@ -630,14 +665,19 @@ int main() {
         vec3 cursor_translation = objects[0]->transform.translation;
         cursor_relative_mat4 = trans_mat(-cursor_translation) * cursor_relative_transform.to_mat4() * trans_mat(cursor_translation);
 
+        vec3 center_point_translation = center_point->transform.translation;
+        center_point_relative_mat4 = trans_mat(-center_point_translation) * center_point_relative_transform.to_mat4() * trans_mat(center_point_translation);
+
+        mat4 relative_transform = cursor_relative_mat4 * center_point_relative_mat4;
+
         for (int i = 0; i < objects.size(); i++) {
             auto& object = objects[i];
 
             glStencilFunc(GL_ALWAYS, i + 1, 0xFF);
             glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
 
-            object->update(cursor_relative_mat4, selected_objects, projection, view, width, height);
-            mat4 global_transform = selected_objects.contains(object) ? cursor_relative_mat4 : mat4(1.0f);
+            object->update(relative_transform, selected_objects, projection, view, width, height);
+            mat4 global_transform = selected_objects.contains(object) ? relative_transform : mat4(1.0f);
             object->draw(projection, view, selected_objects.contains(object), global_transform);
         }
 
@@ -656,7 +696,7 @@ int main() {
 
             if (counter > 0) {
                 center_point->transform.translation /= counter;
-                center_point->draw(projection, view, false, cursor_relative_mat4);
+                center_point->draw(projection, view, false, center_point_relative_mat4);
             }
         }
 
