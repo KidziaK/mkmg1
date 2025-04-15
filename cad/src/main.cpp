@@ -32,6 +32,7 @@ bool leftMouseDown = false;
 double boxStartX = 0;
 double boxStartY = 0;
 bool shiftDown = false;
+bool leftCtrlDown = false;
 bool qKeyPressed = false;
 bool cKeyPressed = false;
 
@@ -102,7 +103,7 @@ void framebuffer_size_callback(GLFWwindow* window_, int width_, int height_) {
 void add_point() {
     auto ppoint = new Point(point_shader);
     objects.push_back(ppoint);
-    for (auto& object : objects) {
+    for (auto& object : selected_objects) {
         if (object->uid == 4) {
             C0Bezier* bezier = dynamic_cast<C0Bezier*>(object);
             bezier->control_points.push_back(ppoint);
@@ -115,10 +116,18 @@ void add_point() {
 void processInput() {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
         glfwSetWindowShouldClose(window, true);
-    } else if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) {
+    }
+
+    if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) {
         shiftDown = true;
     } else if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_RELEASE) {
         shiftDown = false;
+    }
+
+    if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS) {
+        leftCtrlDown = true;
+    } else if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_RELEASE) {
+        leftCtrlDown = false;
     }
 
     if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS && !qKeyPressed) {
@@ -439,6 +448,17 @@ void render_objects_list_window() {
             }
 
             selected_objects.insert(objects[i]);
+
+            if (leftCtrlDown && objects[i]->uid == 2) {
+                Point* point = dynamic_cast<Point*>(objects[i]);
+                for (auto& object : selected_objects) {
+                    if (object->uid == 4) {
+                        C0Bezier* bezier = dynamic_cast<C0Bezier*>(object);
+                        bezier->control_points.push_back(point);
+                        bezier->control_polygon->points.push_back(point);
+                    }
+                }
+            }
         }
 
         if (item_name != "cursor") {
